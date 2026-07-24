@@ -229,6 +229,9 @@ class MainWindow(Gtk.ApplicationWindow):
         if alt and event.keyval in (Gdk.KEY_Page_Up, Gdk.KEY_KP_Page_Up):
             self.push_staged()
             return True
+        if alt and event.keyval in (Gdk.KEY_Page_Down, Gdk.KEY_KP_Page_Down):
+            self.pull()
+            return True
         return False
 
     # ------------------------------------------------------------- helpers

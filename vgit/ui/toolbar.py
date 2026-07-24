@@ -10,8 +10,10 @@ class Toolbar(Gtk.Toolbar):
         self.set_style(Gtk.ToolbarStyle.BOTH)
 
         self._add = self._button('list-add', 'Add', 'Add a local repository', on_add)
-        self._pull = self._button('go-down', 'Pull', 'Pull from remote', on_pull)
-        self._push = self._button('go-up', 'Push', 'Push to remote', on_push)
+        self._pull = self._button('go-down', 'Pull',
+                                  'Pull from remote (Alt+Page Down)', on_pull)
+        self._push = self._button('go-up', 'Push',
+                                  'Push to remote (Alt+Page Up)', on_push)
 
         # Expanding, invisible separator pushes About to the right edge.
         spacer = Gtk.SeparatorToolItem()
