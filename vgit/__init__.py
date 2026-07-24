@@ -1,6 +1,6 @@
-import os
+from vgit.resources import resource_path
 
-_VERSION_FILE = os.path.join(os.path.dirname(__file__), 'version.txt')
+_VERSION_FILE = resource_path('vgit', 'version.txt')
 
 try:
     with open(_VERSION_FILE, 'r', encoding='utf-8') as _f:

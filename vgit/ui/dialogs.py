@@ -6,7 +6,9 @@ gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, GdkPixbuf, GLib
 
-LOGO_PATH = os.path.join(os.path.dirname(__file__), 'logo.svg')
+from vgit.resources import resource_path
+
+LOGO_PATH = resource_path('vgit', 'ui', 'logo.svg')
 FALLBACK_ICON = 'applications-development'  # themed icon used if the SVG fails
 SET_DIALOG_WIDTH = 593  # width of the 'Set …' repo-context modals
 
