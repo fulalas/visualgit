@@ -40,14 +40,11 @@ git program on startup and remembers it (saved as `git_binary` in the config).
 
 ## Shortcuts (app-wide)
 
-- **Ctrl+Enter** — commit. Empty message or empty stage → bottom popover
-  message, nothing happens.
-- **Alt+PageUp** — commit whatever is staged (using the current message),
-  then push. Nothing staged or empty message → popover message, nothing
-  happens.
-- **Ctrl+Up / Ctrl+Down** (in the commit field) — walk back / forward
-  through previous commit messages; your unsent draft is restored when you
-  navigate back past the newest one.
+- **Ctrl+Enter** — commit.
+- **Alt+PageUp** — commit and push whatever is staged (using the current
+  message).
+- **Ctrl+Up / Ctrl+Down** — walk back / forward   through previous commit
+  messages.
 
 Commits are only possible when something is staged.
 
