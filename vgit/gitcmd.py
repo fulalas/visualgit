@@ -81,10 +81,15 @@ class Git:
 
     # ------------------------------------------------------------- queries
 
-    def current_branch(self):
+    def _branch_name(self):
+        """Current branch name, or '' when detached or on no commits."""
         proc = self._run('symbolic-ref', '--short', 'HEAD', check=False)
-        if proc.returncode == 0:
-            return proc.stdout.strip()
+        return proc.stdout.strip() if proc.returncode == 0 else ''
+
+    def current_branch(self):
+        branch = self._branch_name()
+        if branch:
+            return branch
         proc = self._run('rev-parse', '--short', 'HEAD', check=False)
         if proc.returncode == 0:
             return '(detached: %s)' % proc.stdout.strip()
@@ -108,7 +113,7 @@ class Git:
                          '%(upstream:track,nobracket)', 'refs/heads', check=False)
         if proc.returncode != 0:
             return {}
-        has_remotes = bool(self._run('remote', check=False).stdout.split())
+        has_remotes = bool(self.remotes())
         counts = {}
         for line in proc.stdout.splitlines():
             parts = line.split('\t')
@@ -294,20 +299,21 @@ class Git:
         self._run('commit', '-m', message)
 
     def pull(self):
-        proc = self._run('pull', '--no-edit', auth=True,
-                         env={'GIT_EDITOR': 'true'}, check=False)
-        if proc.returncode == 0:
-            return
-        err = proc.stderr or ''
-        low = err.lower()
-        if 'no tracking information' in low or 'no upstream' in low:
-            # The branch has no upstream, so a plain pull fetches but won't
-            # merge. Pull the same-named branch from the effective remote.
-            branch = self._run('symbolic-ref', '--short', 'HEAD').stdout.strip()
-            self._run('pull', '--no-edit', self._push_remote(), branch,
-                      auth=True, env={'GIT_EDITOR': 'true'})
+        branch = self._branch_name()
+        upstream = ''
+        if branch:
+            upstream = self._run('config', 'branch.%s.remote' % branch,
+                                 check=False).stdout.strip()
+        if branch and not upstream:
+            # No upstream configured, so a plain pull would fetch but refuse
+            # to merge. Pull the same-named branch from the effective remote,
+            # then adopt it as upstream so the next pull is a plain one.
+            remote = self._push_remote()
+            self._run('pull', '--no-edit', remote, branch, auth=True)
+            self._run('branch', '--set-upstream-to=%s/%s' % (remote, branch),
+                      check=False)
         else:
-            raise GitError(err.strip() or 'git pull failed')
+            self._run('pull', '--no-edit', auth=True)
 
     def remotes(self):
         """Names of configured remotes (e.g. ['origin'])."""
@@ -329,18 +335,35 @@ class Git:
     def _push_remote(self):
         """Remote to push to: the branch's configured remote, else the only
         remote, else 'origin' when several exist."""
-        branch = self._run('symbolic-ref', '--short', 'HEAD', check=False).stdout.strip()
+        branch = self._branch_name()
         if branch:
             remote = self._run('config', 'branch.%s.remote' % branch,
                                check=False).stdout.strip()
             if remote:
                 return remote
-        remotes = self._run('remote', check=False).stdout.split()
+        remotes = self.remotes()
         if not remotes:
             raise GitError('No remote is configured for this repository.')
         if 'origin' in remotes:
             return 'origin'
         return remotes[0]
+
+    def effective_remote(self):
+        """Name of the remote push/pull would use; 'origin' if none exists
+        yet (the name a new remote should be created under)."""
+        try:
+            return self._push_remote()
+        except GitError:
+            return 'origin'
+
+    def remote_needs_password(self):
+        """True if the effective remote is over HTTP(S) — the only transport
+        the stored username/password credentials apply to."""
+        url = self.get_remote_url(self.effective_remote())
+        return url.startswith('http://') or url.startswith('https://')
+
+    def remove_remote(self, name):
+        self._run('remote', 'remove', name)
 
     def push(self):
         proc = self._run('push', auth=True, check=False)

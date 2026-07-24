@@ -1,12 +1,12 @@
 """Top-center panel: working tree / index status table (multi-select)."""
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk, Gdk, GLib
+from gi.repository import Gtk, Gdk
 
 from vgit.ui.panel import Panel, popup_menu, row_at_event
 
 (COL_NAME, COL_STATE, COL_DIR, COL_PATH, COL_STAGED, COL_UNSTAGED,
- COL_UNTRACKED, COL_NAME_MARKUP) = range(8)
+ COL_UNTRACKED, COL_ICON) = range(8)
 
 # state label -> (glyph, color); distinct glyphs keep the states readable
 # without relying on color alone.
@@ -53,17 +53,30 @@ class FilesPanel(Panel):
         self.view = Gtk.TreeView(model=self.store)
         self.view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
         self._columns = {}
-        for title, col, key, width in (('Name', COL_NAME, 'name', 260),
-                                       ('State', COL_STATE, 'state', 130),
+
+        # Name column: a fixed-width icon cell + the name cell, so names line
+        # up regardless of the state glyph's natural width.
+        name_col = Gtk.TreeViewColumn('Name')
+        icon_renderer = Gtk.CellRendererText(xalign=0.5)
+        icon_renderer.set_fixed_size(22, -1)
+        name_col.pack_start(icon_renderer, False)
+        name_col.add_attribute(icon_renderer, 'markup', COL_ICON)
+        name_renderer = Gtk.CellRendererText()
+        name_renderer.props.ellipsize = 3  # Pango.EllipsizeMode.END
+        name_col.pack_start(name_renderer, True)
+        name_col.add_attribute(name_renderer, 'text', COL_NAME)
+        name_col.set_resizable(True)
+        name_col.set_sort_column_id(COL_NAME)
+        name_col.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        name_col.set_fixed_width(260)
+        self.view.append_column(name_col)
+        self._columns['name'] = name_col
+
+        for title, col, key, width in (('State', COL_STATE, 'state', 130),
                                        ('Relative Directory', COL_DIR, 'dir', 300)):
             renderer = Gtk.CellRendererText()
             renderer.props.ellipsize = 3  # Pango.EllipsizeMode.END
-            if col == COL_NAME:
-                # Icon glyph + name in one cell; sorting stays on the plain name.
-                column = Gtk.TreeViewColumn(title, renderer,
-                                            markup=COL_NAME_MARKUP)
-            else:
-                column = Gtk.TreeViewColumn(title, renderer, text=col)
+            column = Gtk.TreeViewColumn(title, renderer, text=col)
             column.set_resizable(True)
             column.set_sort_column_id(col)
             column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
@@ -89,11 +102,9 @@ class FilesPanel(Panel):
         selected = {e['path'] for e in self.selected_entries()}
         self.store.clear()
         for e in entries:
-            markup = '%s %s' % (_state_icon(e['state']),
-                                GLib.markup_escape_text(e['name']))
             self.store.append([e['name'], e['state'], e['dir'], e['path'],
                                e['staged'], e['unstaged'], e['untracked'],
-                               markup])
+                               _state_icon(e['state'])])
         # Keep _rebuilding set while re-selecting: each select_iter would
         # otherwise fire selection-changed and load a diff per restored row.
         selection = self.view.get_selection()

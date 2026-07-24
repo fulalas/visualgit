@@ -46,14 +46,10 @@ git program on startup and remembers it (saved as `git_binary` in the config).
 
 ## Shortcuts (app-wide)
 
-- **Ctrl+Enter** — commit. Empty message or empty stage → bottom popover
-  message, nothing happens.
-- **Alt+PageUp** — push. If something is staged, it is committed first (using
-  the current message) and then pushed; otherwise the already-committed but
-  unpushed commits are pushed.
-- **Ctrl+Up / Ctrl+Down** (in the commit field) — walk back / forward
-  through previous commit messages; your unsent draft is restored when you
-  navigate back past the newest one.
+- **Ctrl+Enter** — commit.
+- **Alt+PageUp** — push.
+- **Ctrl+Up / Ctrl+Down** — walk back/forward through previous commit
+  messages.
 
 Commits are only possible when something is staged.
 
@@ -67,6 +63,3 @@ encrypted (HMAC-SHA256 keystream, per-value nonce) with a
 machine-local key in `~/.config/visualgit/key` — this keeps them
 unreadable in the config file itself, but is not protection against
 someone with access to this user account.
-
-All notifications are temporary popovers at the bottom of the window —
-never modal dialogs.

@@ -7,6 +7,16 @@ gi.require_version('GdkPixbuf', '2.0')
 from gi.repository import Gtk, GdkPixbuf, GLib
 
 LOGO_PATH = os.path.join(os.path.dirname(__file__), 'logo.svg')
+FALLBACK_ICON = 'applications-development'  # themed icon used if the SVG fails
+SET_DIALOG_WIDTH = 593  # width of the 'Set …' repo-context modals
+
+
+def _append_note(box, text):
+    """Dim explanatory label at the bottom of a dialog."""
+    label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=54,
+                      margin_start=12, margin_end=12, margin_bottom=12)
+    label.get_style_context().add_class('dim-label')
+    box.pack_start(label, False, False, 0)
 
 
 def choose_repository_folder(parent):
@@ -44,16 +54,12 @@ def input_dialog(parent, title, label, text='', note=None):
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
     dialog.set_default_response(Gtk.ResponseType.OK)
-    dialog.set_default_size(480, -1)
+    dialog.set_default_size(SET_DIALOG_WIDTH, -1)
     entry = Gtk.Entry(text=text, activates_default=True)
     box = dialog.get_content_area()
     box.pack_start(_labeled_grid([(label, entry)]), True, True, 0)
     if note:
-        note_label = Gtk.Label(label=note, xalign=0, wrap=True,
-                               max_width_chars=56,
-                               margin_start=12, margin_end=12, margin_bottom=12)
-        note_label.get_style_context().add_class('dim-label')
-        box.pack_start(note_label, False, False, 0)
+        _append_note(box, note)
     dialog.show_all()
     result = entry.get_text().strip() if dialog.run() == Gtk.ResponseType.OK else None
     dialog.destroy()
@@ -65,7 +71,7 @@ def about_dialog(parent, version):
     try:
         dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(LOGO_PATH, 96, 96))
     except GLib.Error:
-        dialog.set_logo_icon_name('applications-development')
+        dialog.set_logo_icon_name(FALLBACK_ICON)
     dialog.set_program_name('VisualGit')
     dialog.set_version(version)
     dialog.set_comments('A simple, intentionally minimal git GUI client.\n'
@@ -106,7 +112,7 @@ def credentials_dialog(parent, repo_name, username='', has_password=False,
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
     dialog.set_default_response(Gtk.ResponseType.OK)
-    dialog.set_default_size(460, -1)
+    dialog.set_default_size(SET_DIALOG_WIDTH, -1)
 
     user_entry = Gtk.Entry(text=username, activates_default=True)
     pass_entry = Gtk.Entry(visibility=False, activates_default=True)
@@ -118,11 +124,7 @@ def credentials_dialog(parent, repo_name, username='', has_password=False,
         _labeled_grid([('Username:', user_entry), ('Password:', pass_entry)]),
         True, True, 0)
     if note:
-        note_label = Gtk.Label(label=note, xalign=0, wrap=True,
-                               max_width_chars=54,
-                               margin_start=12, margin_end=12, margin_bottom=12)
-        note_label.get_style_context().add_class('dim-label')
-        box.pack_start(note_label, False, False, 0)
+        _append_note(box, note)
     dialog.show_all()
 
     result = None
@@ -141,7 +143,7 @@ def identity_dialog(parent, repo_name, name='', email='', note=None):
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
     dialog.set_default_response(Gtk.ResponseType.OK)
-    dialog.set_default_size(460, -1)
+    dialog.set_default_size(SET_DIALOG_WIDTH, -1)
 
     name_entry = Gtk.Entry(text=name, activates_default=True)
     email_entry = Gtk.Entry(text=email, activates_default=True)
@@ -149,11 +151,7 @@ def identity_dialog(parent, repo_name, name='', email='', note=None):
     box.pack_start(_labeled_grid([('Name:', name_entry),
                                   ('Email:', email_entry)]), True, True, 0)
     if note:
-        note_label = Gtk.Label(label=note, xalign=0, wrap=True,
-                               max_width_chars=54,
-                               margin_start=12, margin_end=12, margin_bottom=12)
-        note_label.get_style_context().add_class('dim-label')
-        box.pack_start(note_label, False, False, 0)
+        _append_note(box, note)
     dialog.show_all()
 
     result = None

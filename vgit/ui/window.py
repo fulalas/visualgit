@@ -42,7 +42,7 @@ class MainWindow(Gtk.ApplicationWindow):
         try:
             Gtk.Window.set_default_icon_from_file(dialogs.LOGO_PATH)
         except GLib.Error:
-            Gtk.Window.set_default_icon_name('applications-development')
+            Gtk.Window.set_default_icon_name(dialogs.FALLBACK_ICON)
         self.config = Config()
         self.git = None
         self._drafts = dict(self.config.get_state('drafts', {}))
@@ -399,81 +399,85 @@ class MainWindow(Gtk.ApplicationWindow):
             self.diff_panel.clear()
         self._reload_repo_list()
 
-    def _ensure_remote(self, verb):
-        """If the repo has no remote, ask for a server URL and add it as
-        'origin'. Returns True to proceed, False if the user cancelled."""
-        try:
-            if self.git.remotes():
-                return True
-        except GitError:
-            return True  # let the operation surface the real error
-        url = dialogs.input_dialog(
-            self, 'Set remote — %s' % os.path.basename(self.git.path),
-            'Server URL:',
-            note='%s needs a remote, but none is configured. Enter the '
-                 'repository URL; it will be saved as "origin".' % verb)
-        if not url:
-            return False
-        try:
-            self.git.set_remote('origin', url)
-        except GitError as exc:
-            self.toast.show_message('Could not set remote: %s' % exc)
-            return False
-        self.toast.show_message('Remote "origin" set to %s' % url)
-        return True
-
-    def set_remote(self, path):
-        """Set/change the repo's 'origin' URL from the context menu."""
+    def _prompt_remote(self, path, note=None):
+        """Ask for and save a repo's remote URL (pre-filled when one exists).
+        Returns True if a usable remote is configured afterwards. An empty
+        URL submitted over an existing remote offers to remove it."""
         git = self.git if self.git and self.git.path == path else Git(path)
+        name = git.effective_remote()
         try:
-            current = git.get_remote_url('origin')
+            current = git.get_remote_url(name)
         except GitError:
             current = ''
         url = dialogs.input_dialog(
             self, 'Set remote — %s' % os.path.basename(path),
             'Server URL:', text=current,
-            note='The repository URL, saved as "origin" and used for pushing '
-                 'and pulling.')
-        if not url:
-            return
+            note=note or 'The repository URL, saved as remote "%s" and used '
+                         'for pushing and pulling.' % name)
+        if url is None:  # cancelled
+            return False
+        if not url:  # OK with an empty field
+            if current and dialogs.confirm_dialog(
+                    self, 'Remove remote?',
+                    'Remove remote "%s" (%s)?' % (name, current)):
+                try:
+                    git.remove_remote(name)
+                    self.toast.show_message('Remote "%s" removed.' % name)
+                except GitError as exc:
+                    self.toast.show_message('Could not remove remote: %s' % exc)
+            else:
+                self.toast.show_message('No URL entered — nothing changed.')
+            return False
         try:
-            git.set_remote('origin', url)
+            git.set_remote(name, url)
         except GitError as exc:
             self.toast.show_message('Could not set remote: %s' % exc)
-            return
-        self.toast.show_message('Remote "origin" set for %s.'
-                                % os.path.basename(path))
+            return False
+        self.toast.show_message('Remote "%s" set to %s' % (name, url))
+        return True
+
+    def set_remote(self, path):
+        """Set/change a repo's remote URL from the context menu."""
+        self._prompt_remote(path)
 
     def _credentials_set(self):
         """True if a username and password are both stored for the repo."""
         username, password = self.config.credentials(self.git.path)
         return bool(username and password)
 
-    def _ask_credentials(self, verb):
-        """Show the credentials modal for the current repo. Returns True if
-        the user saved credentials, False if they cancelled."""
-        return self.set_credentials(
-            self.git.path,
-            note='%s needs credentials for this repository, which are not set. '
-                 'Enter the username and password; they will be saved '
-                 '(encrypted) and used for pushing and pulling.' % verb)
+    def _remote_preflight(self, verb):
+        """Common checks before pull/push. Returns True to proceed."""
+        if not self._require_repo() or self._remote_in_progress():
+            return False
+        if not Git.is_repo(self.git.path):
+            self.toast.show_message('"%s" is not a git repository.'
+                                    % self.git.path)
+            return False
+        if not self.git.remotes() and not self._prompt_remote(
+                self.git.path,
+                note='%s needs a remote, but none is configured. Enter the '
+                     'repository URL; it will be saved as "origin".' % verb):
+            return False
+        # Credentials are only meaningful for HTTP(S) remotes — SSH and
+        # local-path remotes must not be blocked by the credentials modal.
+        if (self.git.remote_needs_password() and not self._credentials_set()
+                and not self.set_credentials(
+                    self.git.path,
+                    note='%s needs credentials for this repository, which are '
+                         'not set. Enter the username and password; they will '
+                         'be saved (encrypted) and used for pushing and '
+                         'pulling.' % verb)):
+            return False
+        return True
 
     def pull(self):
-        if not self._require_repo() or self._remote_in_progress():
-            return
-        if not self._ensure_remote('Pull'):
-            return
-        if not self._credentials_set() and not self._ask_credentials('Pull'):
+        if not self._remote_preflight('Pull'):
             return
         self.toast.show_message('Pulling…')
         self._run_async(self.git.pull, self._on_remote_done('Pull'))
 
     def push(self):
-        if not self._require_repo() or self._remote_in_progress():
-            return
-        if not self._ensure_remote('Push'):
-            return
-        if not self._credentials_set() and not self._ask_credentials('Push'):
+        if not self._remote_preflight('Push'):
             return
         self.toast.show_message('Pushing…')
         self._run_async(self.git.push, self._on_remote_done('Push'))
@@ -787,7 +791,12 @@ class MainWindow(Gtk.ApplicationWindow):
         if result is None:
             return False
         # An empty password field means "keep the stored one", not "erase it".
+        username = result[0].strip()
         password = result[1] or old_password
-        self.config.set_credentials(path, result[0], password)
+        if not username or not password:
+            self.toast.show_message('Credentials need both a username and a '
+                                    'password — nothing saved.')
+            return False
+        self.config.set_credentials(path, username, password)
         self.toast.show_message('Credentials saved for %s.' % os.path.basename(path))
         return True
