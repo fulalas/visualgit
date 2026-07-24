@@ -3,7 +3,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
 
-from vgit.ui.panel import Panel, popup_menu, row_at_event
+from vgit.ui.panel import Panel, popup_menu, row_at_event, add_filler_column
 
 (COL_NAME, COL_STATE, COL_DIR, COL_PATH, COL_STAGED, COL_UNSTAGED,
  COL_UNTRACKED, COL_ICON) = range(8)
@@ -83,6 +83,9 @@ class FilesPanel(Panel):
             column.set_fixed_width(width)
             self.view.append_column(column)
             self._columns[key] = column
+        # Trailing filler absorbs leftover width and gives the last real column
+        # a resize grip (GTK won't draw one on the final column).
+        add_filler_column(self.view, expand=True)
         self.view.get_selection().connect('changed', self._on_selection_changed)
         self.view.connect('row-activated', self._on_row_activated)
         self.view.connect('button-press-event', self._on_button_press)

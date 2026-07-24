@@ -51,6 +51,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._last_rev = None  # (HEAD hash, branch) — detects external commits
         self._poll_busy = False
         self._remote_busy = False
+        self._resync_pending = False  # a change arrived while busy; re-sync after
         self._watcher = None       # FolderWatcher for the current repo
         self._fallback_poll_id = None
         self._load_css()
@@ -262,6 +263,9 @@ class MainWindow(Gtk.ApplicationWindow):
             self._remote_busy = False
             self.toolbar.set_remote_ops_sensitive(True)
             on_done(result, error)
+            if self._resync_pending:  # disk changed during the remote op
+                self._resync_pending = False
+                self._sync_from_disk()
             return False
 
         threading.Thread(target=thread_body, daemon=True).start()
@@ -275,15 +279,15 @@ class MainWindow(Gtk.ApplicationWindow):
 
     def _watch_repo(self, path):
         """(Re)start filesystem monitoring for the given repo. Falls back to a
-        slow timer only if the tree is too large to watch entirely."""
+        slow timer only if the tree is too large to watch entirely (decided
+        after the watcher's background scan, via on_ready)."""
         self._stop_watching()
-        try:
-            self._watcher = FolderWatcher(path, self._sync_from_disk)
-        except OSError:
-            self._watcher = None
-        if self._watcher is None or self._watcher.overflowed:
-            # Couldn't watch everything — poll slowly as a safety net.
-            self._fallback_poll_id = GLib.timeout_add(3000, self._fallback_poll)
+
+        def on_ready(overflowed):
+            if overflowed and self._fallback_poll_id is None:
+                self._fallback_poll_id = GLib.timeout_add(3000, self._fallback_poll)
+
+        self._watcher = FolderWatcher(path, self._sync_from_disk, on_ready=on_ready)
 
     def _stop_watching(self):
         if self._watcher is not None:
@@ -305,7 +309,12 @@ class MainWindow(Gtk.ApplicationWindow):
         working-tree edits, and the journal/branches with commits made outside
         the app (commit, amend, checkout, merge, pull, reset). Runs the git
         queries off the UI thread; applies results on the UI loop."""
-        if self.git is None or self._poll_busy or self._remote_busy:
+        if self.git is None:
+            return
+        if self._poll_busy or self._remote_busy:
+            # A sync or remote op is in flight; remember to reconcile again once
+            # it finishes, so a change that lands mid-flight is never missed.
+            self._resync_pending = True
             return
         self._poll_busy = True
         git = self.git
@@ -333,6 +342,9 @@ class MainWindow(Gtk.ApplicationWindow):
                 selected = self.files_panel.selected_entries()
                 if len(selected) == 1:
                     self._on_file_selected(selected[0])
+            if self._resync_pending:
+                self._resync_pending = False
+                GLib.idle_add(self._sync_from_disk)
             return False
 
         threading.Thread(target=work, daemon=True).start()

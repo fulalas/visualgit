@@ -221,14 +221,27 @@ class Git:
                          '--pretty=format:' + fmt, check=False)
         if proc.returncode != 0:
             return []
+        prefixes = tuple(r + '/' for r in self.remotes())
         commits = []
         for line in proc.stdout.splitlines():
             parts = line.split(SEP)
             if len(parts) != 7:
                 continue
-            commits.append(dict(zip(
-                ('hash', 'short', 'author', 'email', 'date', 'refs', 'subject'), parts)))
+            info = dict(zip(
+                ('hash', 'short', 'author', 'email', 'date', 'refs', 'subject'), parts))
+            info['refs'] = self._remote_refs(info['refs'], prefixes)
+            commits.append(info)
         return commits
+
+    @staticmethod
+    def _remote_refs(refs, prefixes):
+        """Keep only remote-tracking refs (e.g. 'origin/2.8'), dropping local
+        branches, HEAD pointers and tags."""
+        if not prefixes:
+            return ''
+        kept = [r for r in (t.strip() for t in refs.split(','))
+                if r.startswith(prefixes) and not r.endswith('/HEAD')]
+        return ', '.join(kept)
 
     def messages(self, limit=50):
         proc = self._run('log', '-z', '-n', str(limit), '--format=%B', check=False)

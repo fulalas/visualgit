@@ -3,7 +3,7 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
 
-from vgit.ui.panel import Panel, popup_menu, row_at_event
+from vgit.ui.panel import Panel, popup_menu, row_at_event, add_filler_column
 
 COL_HASH, COL_SHORT, COL_REFS, COL_SUBJECT, COL_DATE, COL_WEIGHT = range(6)
 
@@ -39,6 +39,9 @@ class JournalPanel(Panel):
                 column.set_fixed_width(width)
                 self._columns[key] = column
             self.view.append_column(column)
+        # Subject already soaks up the slack, so keep the filler width-less;
+        # it exists only to give the Date column a resize grip.
+        add_filler_column(self.view, expand=False)
         self.view.connect('button-press-event', self._on_button_press)
         self.scrolled.add(self.view)
 

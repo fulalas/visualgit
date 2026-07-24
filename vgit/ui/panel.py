@@ -17,6 +17,17 @@ class Panel(Gtk.Box):
         self.pack_start(self.scrolled, True, True, 0)
 
 
+def add_filler_column(view, expand=True):
+    """Append a blank trailing column. GtkTreeView never draws a resize grip on
+    its final column, so without this the last data column can't be resized —
+    the filler gives it a right-hand neighbour to drag against. With `expand`
+    set, the filler also absorbs any leftover width."""
+    filler = Gtk.TreeViewColumn()
+    filler.set_expand(expand)
+    view.append_column(filler)
+    return filler
+
+
 def popup_menu(view, event, items):
     """Build and show a context menu. `items` is a list of (label, callback)
     or (label, callback, sensitive); a None entry inserts a separator."""
