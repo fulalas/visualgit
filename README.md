@@ -46,8 +46,6 @@ git program on startup and remembers it (saved as `git_binary` in the config).
 - **Ctrl+Up / Ctrl+Down** — walk back / forward   through previous commit
   messages.
 
-Commits are only possible when something is staged.
-
 ## Persisted state
 
 Saved to `~/.config/visualgit/config.json` on exit (and when switching
@@ -57,6 +55,3 @@ are stored encrypted (HMAC-SHA256 keystream, per-value nonce) with a
 machine-local key in `~/.config/visualgit/key` — this keeps them
 unreadable in the config file itself, but is not protection against
 someone with access to this user account.
-
-All notifications are temporary popovers at the bottom of the window —
-never modal dialogs.
