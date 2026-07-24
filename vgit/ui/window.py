@@ -1,0 +1,714 @@
+"""Main window: layout, global shortcuts, and all action wiring."""
+import os
+import subprocess
+import threading
+
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk, Gdk, Gio, GLib
+
+from vgit import __version__
+from vgit import gitcmd
+from vgit.config import Config
+from vgit.gitcmd import Git, GitError
+from vgit.ui import dialogs
+from vgit.ui.branches_panel import BranchesPanel
+from vgit.ui.commit_panel import CommitPanel
+from vgit.ui.diff_panel import DiffPanel
+from vgit.ui.files_panel import FilesPanel
+from vgit.ui.journal_panel import JournalPanel
+from vgit.ui.repos_panel import ReposPanel
+from vgit.ui.toast import Toast
+from vgit.ui.toolbar import Toolbar
+
+CSS = b"""
+.vgit-toast {
+    background-color: rgba(25, 25, 25, 0.92);
+    color: #ffffff;
+    border-radius: 8px;
+    padding: 10px 18px;
+}
+.vgit-panel-header {
+    font-weight: bold;
+    padding: 5px 8px;
+    background-color: alpha(currentColor, 0.07);
+}
+"""
+
+
+class MainWindow(Gtk.ApplicationWindow):
+    def __init__(self, app):
+        super().__init__(application=app, title='VisualGit - %s' % __version__)
+        self.config = Config()
+        self.git = None
+        self._drafts = dict(self.config.get_state('drafts', {}))
+        self._last_status = None
+        self._poll_busy = False
+        self._remote_busy = False
+        self._load_css()
+        self._build_ui()
+        self._restore_window_state()
+        self.connect('key-press-event', self._on_key_press)
+        self.connect('delete-event', self._on_close)
+        self.show_all()
+        self.files_panel.view.grab_focus()
+        # Make sure a working git is available before any repo query runs.
+        self._ensure_git()
+        items = self._reload_repo_list()
+        if items:
+            saved = self.config.get_state('selected_repo')
+            if not any(item['path'] == saved for item in items):
+                saved = items[0]['path']
+            self.repos_panel.select(saved)
+        GLib.timeout_add(2000, self._poll_status)
+
+    def _ensure_git(self):
+        """Make sure a runnable git binary is configured. If none is found,
+        ask the user for the folder containing git, validating on OK."""
+        saved = self.config.get_state('git_binary')
+        if saved:
+            gitcmd.set_git_binary(saved)
+        if gitcmd.git_available():
+            return
+        while True:
+            folder = dialogs.choose_git_folder(self)
+            if folder is None:  # cancelled
+                self.toast.show_message(
+                    'Git was not found — git operations are unavailable. '
+                    'Restart to set its location.')
+                return
+            candidate = os.path.join(folder, 'git')
+            if gitcmd.git_binary_works(candidate):  # only checked on OK
+                gitcmd.set_git_binary(candidate)
+                self.config.set_state('git_binary', candidate)
+                self.toast.show_message('Using git at %s.' % candidate)
+                return
+            dialogs.message_dialog(
+                self, 'Git not found here',
+                'No working "git" program in:\n%s\n\n'
+                'Choose the folder that contains the git executable.' % folder)
+
+    # ----------------------------------------------------------- UI setup
+
+    def _load_css(self):
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        Gtk.StyleContext.add_provider_for_screen(
+            Gdk.Screen.get_default(), provider,
+            Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+
+    def _build_ui(self):
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
+        self.add(root)
+
+        self.toolbar = Toolbar(on_add=self.add_repository,
+                               on_pull=self.pull, on_push=self.push)
+        root.pack_start(self.toolbar, False, False, 0)
+
+        overlay = Gtk.Overlay()
+        root.pack_start(overlay, True, True, 0)
+        self.toast = Toast()
+        overlay.add_overlay(self.toast)
+        # The toast is purely informational: let all input pass through it,
+        # otherwise it blocks clicks on the UI underneath while shown.
+        overlay.set_overlay_pass_through(self.toast, True)
+
+        self.repos_panel = ReposPanel(on_selected=self._on_repo_selected,
+                                      on_set_credentials=self.set_credentials,
+                                      on_set_identity=self.set_identity,
+                                      on_remove=self.remove_repository)
+        self.branches_panel = BranchesPanel(on_merge_from=self.merge_from,
+                                            on_checkout=self.checkout_branch)
+        self.files_panel = FilesPanel(on_file_selected=self._on_file_selected,
+                                      on_stage=self._stage_files,
+                                      on_unstage=self._unstage_files,
+                                      on_open=self._open_file,
+                                      on_reveal=self._reveal_file,
+                                      on_discard=self._discard_files,
+                                      on_delete=self._delete_files,
+                                      on_ignore=self._ignore_files)
+        self.commit_panel = CommitPanel(on_commit=self.do_commit,
+                                        get_history=self._commit_history,
+                                        on_info=self.toast.show_message)
+        self.diff_panel = DiffPanel()
+        self.journal_panel = JournalPanel(on_copy_hash=self.copy_hash,
+                                          on_edit_commit=self.edit_commit,
+                                          on_checkout=self.checkout_commit)
+
+        left = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        left.pack1(self.repos_panel, True, False)
+        left.pack2(self.branches_panel, False, False)
+
+        top = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        top.pack1(self.files_panel, True, False)
+        top.pack2(self.commit_panel, False, False)
+
+        center_bottom = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        center_bottom.pack1(self.diff_panel, True, False)
+        center_bottom.pack2(self.journal_panel, False, False)
+
+        right = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
+        right.pack1(top, False, False)
+        right.pack2(center_bottom, True, False)
+
+        main = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
+        main.pack1(left, False, False)
+        main.pack2(right, True, False)
+        overlay.add(main)
+
+        self._paned = {'left': left, 'top': top, 'center_bottom': center_bottom,
+                       'right': right, 'main': main}
+        self._paned_defaults = {'left': 560, 'top': 850, 'center_bottom': 380,
+                                'right': 300, 'main': 280}
+
+    # ------------------------------------------------------ persisted state
+
+    def _restore_window_state(self):
+        geometry = self.config.get_state('window', {})
+        self.set_default_size(geometry.get('width', 1500),
+                              geometry.get('height', 950))
+        if 'x' in geometry and 'y' in geometry:
+            self.move(geometry['x'], geometry['y'])
+        if geometry.get('maximized'):
+            self.maximize()
+        positions = self.config.get_state('paned', {})
+        for name, paned in self._paned.items():
+            paned.set_position(positions.get(name, self._paned_defaults[name]))
+        columns = self.config.get_state('columns', {})
+        self.files_panel.set_column_widths(columns.get('files', {}))
+        self.journal_panel.set_column_widths(columns.get('journal', {}))
+
+    def _save_current_draft(self):
+        if self.git is None:
+            return
+        text = self.commit_panel.get_message()
+        if text.strip():
+            self._drafts[self.git.path] = text
+        else:
+            self._drafts.pop(self.git.path, None)
+
+    def _on_close(self, *_args):
+        self._save_current_draft()
+        geometry = dict(self.config.get_state('window', {}))
+        geometry['maximized'] = self.is_maximized()
+        if not self.is_maximized():
+            geometry['width'], geometry['height'] = self.get_size()
+            geometry['x'], geometry['y'] = self.get_position()
+        self.config.set_state('window', geometry, save=False)
+        self.config.set_state(
+            'paned', {name: paned.get_position()
+                      for name, paned in self._paned.items()}, save=False)
+        self.config.set_state(
+            'columns', {'files': self.files_panel.get_column_widths(),
+                        'journal': self.journal_panel.get_column_widths()},
+            save=False)
+        if self.git:
+            self.config.set_state('selected_repo', self.git.path, save=False)
+        self.config.set_state('drafts', self._drafts)
+        return False
+
+    # ------------------------------------------------------ global shortcuts
+
+    def _on_key_press(self, _widget, event):
+        ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
+        alt = event.state & Gdk.ModifierType.MOD1_MASK
+        if ctrl and event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
+            self.do_commit()
+            return True
+        if alt and event.keyval in (Gdk.KEY_Page_Up, Gdk.KEY_KP_Page_Up):
+            self.push_staged()
+            return True
+        return False
+
+    # ------------------------------------------------------------- helpers
+
+    def _require_repo(self):
+        if self.git is None:
+            self.toast.show_message('No repository selected.')
+            return False
+        return True
+
+    def _remote_in_progress(self):
+        """Guard for actions that must not run during an async pull/push."""
+        if self._remote_busy:
+            self.toast.show_message('A remote operation is in progress — please wait.')
+            return True
+        return False
+
+    def _run_async(self, work, on_done):
+        """Run `work()` in a thread; call on_done(result, error) on the UI loop."""
+        self._remote_busy = True
+        self.toolbar.set_remote_ops_sensitive(False)
+
+        def thread_body():
+            result, error = None, None
+            try:
+                result = work()
+            except Exception as exc:  # surfaced as a toast
+                error = exc
+            GLib.idle_add(finish, result, error)
+
+        def finish(result, error):
+            self._remote_busy = False
+            self.toolbar.set_remote_ops_sensitive(True)
+            on_done(result, error)
+            return False
+
+        threading.Thread(target=thread_body, daemon=True).start()
+
+    def _commit_history(self):
+        return self.git.messages() if self.git else []
+
+    def _apply_status(self, entries):
+        self._last_status = entries
+        self.files_panel.set_files(entries)
+
+    def _poll_status(self):
+        """Keep the file list in sync with external changes to the folder."""
+        if self.git is None or self._poll_busy or self._remote_busy:
+            return True
+        self._poll_busy = True
+        git = self.git
+
+        def work():
+            try:
+                entries = git.status()
+            except (GitError, OSError):
+                entries = None
+            GLib.idle_add(done, entries)
+
+        def done(entries):
+            self._poll_busy = False
+            if (entries is not None and git is self.git
+                    and entries != self._last_status):
+                self._apply_status(entries)
+                selected = self.files_panel.selected_entries()
+                if len(selected) == 1:
+                    self._on_file_selected(selected[0])
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
+    # ------------------------------------------------------------- refresh
+
+    def _reload_repo_list(self):
+        """Show the repo list immediately; resolve each repo's branch in a
+        background thread (git per repo would block startup on slow disks)."""
+        paths = [repo['path'] for repo in self.config.repos()]
+        items = [{'path': path, 'name': os.path.basename(path), 'branch': '…'}
+                 for path in paths]
+        items.sort(key=lambda item: item['name'].lower())
+        self.repos_panel.set_repos(items)
+
+        def work():
+            for path in paths:
+                try:
+                    branch = (Git(path).current_branch() if Git.is_repo(path)
+                              else 'missing')
+                except (GitError, OSError):
+                    branch = 'missing'
+                GLib.idle_add(self.repos_panel.update_branch, path,
+                              os.path.basename(path), branch)
+
+        threading.Thread(target=work, daemon=True).start()
+        return items
+
+    def refresh_repo_views(self):
+        """Gather repo state in a background thread, apply it on the UI loop."""
+        if self.git is None:
+            return
+        git = self.git
+
+        def work():
+            data, error = {}, None
+            try:
+                data['current'] = git.current_branch()
+                data['branches'] = git.branches()
+                data['remotes'] = git.remote_branches()
+                data['status'] = git.status()
+                data['log'] = git.log()
+                data['head'] = git.head_hash()
+                data['ahead'] = git.ahead_counts()
+            except (GitError, OSError) as exc:
+                error = exc
+            GLib.idle_add(apply_data, data, error)
+
+        def apply_data(data, error):
+            if git is not self.git:  # repo switched while gathering
+                return False
+            if error:
+                self.toast.show_message(str(error))
+                return False
+            self.branches_panel.set_branches(data['branches'], data['current'],
+                                             data['remotes'], data['ahead'])
+            self._apply_status(data['status'])
+            self.journal_panel.set_commits(data['log'], data['head'])
+            self.diff_panel.clear()
+            self.repos_panel.update_branch(git.path, os.path.basename(git.path),
+                                           data['current'])
+            return False
+
+        threading.Thread(target=work, daemon=True).start()
+
+    def _on_repo_selected(self, path):
+        self._save_current_draft()
+        self.git = Git(path,
+                       cred_provider=lambda p=path: self.config.credentials(p),
+                       askpass=self.config.askpass_path())
+        self.repos_panel.set_active(path)
+        self.commit_panel.set_message(self._drafts.get(path, ''))
+        self.refresh_repo_views()
+        self.config.set_state('selected_repo', path, save=False)
+        self.config.set_state('drafts', self._drafts)
+
+    # ------------------------------------------------------------- toolbar
+
+    def add_repository(self):
+        path = dialogs.choose_repository_folder(self)
+        if not path:
+            return
+        if not Git.is_repo(path):
+            self.toast.show_message('"%s" is not a git repository.' % path)
+            return
+        if not self.config.add_repo(path):
+            self.toast.show_message('Repository is already in the list.')
+            return
+        self._reload_repo_list()
+        self.repos_panel.select(path)
+
+    def remove_repository(self, path):
+        self.config.remove_repo(path)
+        self._drafts.pop(path, None)
+        self.config.set_state('drafts', self._drafts, save=False)
+        if self.git and self.git.path == path:
+            self.git = None
+            self.repos_panel.set_active(None)
+            self.branches_panel.set_branches([], None)
+            self._apply_status([])
+            self.journal_panel.set_commits([])
+            self.diff_panel.clear()
+        self._reload_repo_list()
+
+    def pull(self):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        self.toast.show_message('Pulling…')
+        self._run_async(self.git.pull, self._on_remote_done('Pull'))
+
+    def push(self):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        self.toast.show_message('Pushing…')
+        self._run_async(self.git.push, self._on_remote_done('Push'))
+
+    def _on_remote_done(self, verb):
+        def done(_result, error):
+            if error:
+                self.toast.show_message('%s failed: %s' % (verb, error))
+            else:
+                self.toast.show_message('%s completed.' % verb)
+                self.refresh_repo_views()
+        return done
+
+    # ------------------------------------------------------------- commit
+
+    @staticmethod
+    def _is_identity_error(exc):
+        text = str(exc).lower()
+        return ('tell me who you are' in text
+                or 'auto-detect email' in text
+                or 'empty ident' in text)
+
+    def do_commit(self, ask_identity=True):
+        """Commit the staged changes. Returns True on success."""
+        if not self._require_repo() or self._remote_in_progress():
+            return False
+        message = self.commit_panel.get_message().strip()
+        if not message:
+            self.toast.show_message('Commit message is empty — nothing committed.')
+            return False
+        try:
+            if not self.git.has_staged():
+                self.toast.show_message('Nothing is staged — stage files before committing.')
+                return False
+            self.git.commit(message)
+        except GitError as exc:
+            if ask_identity and self._is_identity_error(exc):
+                if self.set_identity(
+                        self.git.path,
+                        note='Git refused the commit because it does not know '
+                             'who you are. Enter the name and email to record '
+                             'as the author of your commits in this repository '
+                             '— they will be saved in its .git/config.'):
+                    return self.do_commit(ask_identity=False)
+                return False
+            self.toast.show_message('Commit failed: %s' % exc)
+            return False
+        self.commit_panel.clear()
+        self._drafts.pop(self.git.path, None)
+        self.config.set_state('drafts', self._drafts)
+        self.toast.show_message('Committed.')
+        self.refresh_repo_views()
+        return True
+
+    def push_staged(self):
+        """Alt+PageUp: commit staged changes first (if any), then push. With
+        nothing staged, push the already-committed but unpushed commits."""
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            staged = self.git.has_staged()
+        except GitError as exc:
+            self.toast.show_message(str(exc))
+            return
+        if staged:
+            # There is staged work — commit it before pushing (needs a message).
+            if not self.do_commit():
+                return
+        self.push()
+
+    # ------------------------------------------------------- files & diff
+
+    def _on_file_selected(self, entry):
+        if self.git is None:
+            return
+        if entry is None:  # zero or several files selected
+            self.diff_panel.clear()
+            return
+        try:
+            staged_only = entry['staged'] and not entry['unstaged']
+            diff = self.git.diff_file(entry['path'], staged=staged_only,
+                                      untracked=entry['untracked'])
+            self.diff_panel.set_diff(diff)
+        except GitError as exc:
+            self.toast.show_message(str(exc))
+
+    def _abs_path(self, entry):
+        return os.path.join(self.git.path, entry['path'])
+
+    def _open_file(self, entry):
+        if not self._require_repo():
+            return
+        path = self._abs_path(entry)
+        try:
+            subprocess.Popen(['xdg-open', path])
+        except OSError as exc:
+            self.toast.show_message('Could not open file: %s' % exc)
+
+    def _reveal_file(self, entry):
+        if not self._require_repo():
+            return
+        path = self._abs_path(entry)
+        try:
+            # Ask the file manager to show the file selected in its folder.
+            bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
+            uri = GLib.filename_to_uri(path, None)
+            bus.call_sync('org.freedesktop.FileManager1',
+                          '/org/freedesktop/FileManager1',
+                          'org.freedesktop.FileManager1', 'ShowItems',
+                          GLib.Variant('(ass)', ([uri], '')),
+                          None, Gio.DBusCallFlags.NONE, 2000, None)
+        except GLib.Error:
+            try:
+                subprocess.Popen(['xdg-open', os.path.dirname(path)])
+            except OSError as exc:
+                self.toast.show_message('Could not open file manager: %s' % exc)
+
+    def _discard_files(self, entries):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            for entry in entries:
+                self.git.discard(entry['path'])
+        except GitError as exc:
+            self.toast.show_message('Discard failed: %s' % exc)
+            self._refresh_files_keep_diff()
+            return
+        if len(entries) == 1:
+            self.toast.show_message('Discarded changes in %s.' % entries[0]['path'])
+        else:
+            self.toast.show_message('Discarded changes in %d files.' % len(entries))
+        self._refresh_files_keep_diff()
+
+    def _delete_files(self, entries):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        if len(entries) == 1:
+            text = '"%s" will be permanently deleted from disk.' % entries[0]['path']
+        else:
+            text = '%d files will be permanently deleted from disk.' % len(entries)
+        if not dialogs.confirm_dialog(self, 'Delete?', text):
+            return
+        errors = 0
+        for entry in entries:
+            try:
+                os.remove(self._abs_path(entry))
+            except OSError:
+                errors += 1
+        if errors:
+            self.toast.show_message('Deleted %d file(s), %d failed.'
+                                    % (len(entries) - errors, errors))
+        else:
+            self.toast.show_message('Deleted %d file(s).' % len(entries))
+        self._refresh_files_keep_diff()
+
+    def _ignore_files(self, entries):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            added = self.git.add_to_gitignore([e['path'] for e in entries])
+        except OSError as exc:
+            self.toast.show_message('Could not write .gitignore: %s' % exc)
+            return
+        if added:
+            self.toast.show_message('Added %d entr%s to .gitignore.'
+                                    % (len(added), 'y' if len(added) == 1 else 'ies'))
+        else:
+            self.toast.show_message('Already in .gitignore.')
+        self._refresh_files_keep_diff()
+
+    def _stage_files(self, entries):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            for entry in entries:
+                self.git.stage(entry['path'])
+        except GitError as exc:
+            self.toast.show_message('Stage failed: %s' % exc)
+        self._refresh_files_keep_diff()
+
+    def _unstage_files(self, entries):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            for entry in entries:
+                self.git.unstage(entry['path'])
+        except GitError as exc:
+            self.toast.show_message('Unstage failed: %s' % exc)
+        self._refresh_files_keep_diff()
+
+    def _refresh_files_keep_diff(self):
+        try:
+            self._apply_status(self.git.status())
+        except GitError as exc:
+            self.toast.show_message(str(exc))
+        entries = self.files_panel.selected_entries()
+        if len(entries) == 1:
+            self._on_file_selected(entries[0])
+        else:
+            self.diff_panel.clear()
+
+    # ------------------------------------------------------------ branches
+
+    def checkout_branch(self, name, kind):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            if kind == 'remote':
+                self.git.checkout_remote(name)
+            else:
+                self.git.checkout(name)
+        except GitError as exc:
+            self.toast.show_message('Checkout failed: %s' % exc)
+            return
+        self.toast.show_message("Switched to '%s'." % self.git.current_branch())
+        self.refresh_repo_views()
+
+    def merge_from(self, branch):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            self.git.merge(branch)
+        except GitError as exc:
+            self.toast.show_message('Merge failed: %s' % exc)
+            self.refresh_repo_views()
+            return
+        self.toast.show_message("Merged '%s' into %s." %
+                                (branch, self.git.current_branch()))
+        self.refresh_repo_views()
+
+    # ------------------------------------------------------------- journal
+
+    def copy_hash(self, commit):
+        clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
+        clipboard.set_text(commit, -1)
+        clipboard.store()
+        self.toast.show_message('Commit hash copied: %s' % commit[:12])
+
+    def checkout_commit(self, commit):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            self.git.checkout(commit)
+        except GitError as exc:
+            self.toast.show_message('Checkout failed: %s' % exc)
+            return
+        self.toast.show_message(
+            'Checked out %s — HEAD is detached; double-click a branch to return.'
+            % commit[:12])
+        self.refresh_repo_views()
+
+    def edit_commit(self, commit):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        try:
+            name, email, body = self.git.commit_info(commit)
+        except GitError as exc:
+            self.toast.show_message(str(exc))
+            return
+        result = dialogs.edit_commit_dialog(self, body, name, email)
+        if not result:
+            return
+        if not result['message']:
+            self.toast.show_message('Commit message cannot be empty.')
+            return
+        try:
+            rewritten = self.git.reword(commit, result['message'],
+                                        result['author_name'],
+                                        result['author_email'])
+        except GitError as exc:
+            self.toast.show_message('Edit failed: %s' % exc)
+            self.refresh_repo_views()
+            return
+        if rewritten:
+            self.toast.show_message('Commit updated — newer commits were rewritten '
+                                    '(hashes changed).')
+        else:
+            self.toast.show_message('Commit updated.')
+        self.refresh_repo_views()
+
+    # -------------------------------------------------------- credentials
+
+    def set_identity(self, path, note=None):
+        """Show the identity modal for a repo. Returns True if saved."""
+        git = self.git if self.git and self.git.path == path else Git(path)
+        try:
+            name, email = git.identity()
+        except GitError:
+            name, email = '', ''
+        result = dialogs.identity_dialog(self, os.path.basename(path),
+                                         name, email, note)
+        if result is None:
+            return False
+        if not result[0] or not result[1]:
+            self.toast.show_message('Identity needs both a name and an email.')
+            return False
+        try:
+            git.set_identity(result[0], result[1])
+        except GitError as exc:
+            self.toast.show_message('Could not save identity: %s' % exc)
+            return False
+        self.toast.show_message('Identity saved for %s.' % os.path.basename(path))
+        return True
+
+    def set_credentials(self, path):
+        username, old_password = self.config.credentials(path)
+        result = dialogs.credentials_dialog(self, os.path.basename(path), username,
+                                            has_password=bool(old_password))
+        if result is None:
+            return
+        # An empty password field means "keep the stored one", not "erase it".
+        password = result[1] or old_password
+        self.config.set_credentials(path, result[0], password)
+        self.toast.show_message('Credentials saved for %s.' % os.path.basename(path))
