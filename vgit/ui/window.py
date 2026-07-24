@@ -20,6 +20,7 @@ from vgit.ui.journal_panel import JournalPanel
 from vgit.ui.repos_panel import ReposPanel
 from vgit.ui.toast import Toast
 from vgit.ui.toolbar import Toolbar
+from vgit.ui.watcher import FolderWatcher
 
 CSS = b"""
 .vgit-toast {
@@ -50,6 +51,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self._last_rev = None  # (HEAD hash, branch) — detects external commits
         self._poll_busy = False
         self._remote_busy = False
+        self._watcher = None       # FolderWatcher for the current repo
+        self._fallback_poll_id = None
         self._load_css()
         self._build_ui()
         self._restore_window_state()
@@ -65,7 +68,6 @@ class MainWindow(Gtk.ApplicationWindow):
             if not any(item['path'] == saved for item in items):
                 saved = items[0]['path']
             self.repos_panel.select(saved)
-        GLib.timeout_add(2000, self._poll_status)
 
     def _ensure_git(self):
         """Make sure a runnable git binary is configured. If none is found,
@@ -195,6 +197,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._drafts.pop(self.git.path, None)
 
     def _on_close(self, *_args):
+        self._stop_watching()
         self._save_current_draft()
         geometry = dict(self.config.get_state('window', {}))
         geometry['maximized'] = self.is_maximized()
@@ -270,12 +273,40 @@ class MainWindow(Gtk.ApplicationWindow):
         self._last_status = entries
         self.files_panel.set_files(entries)
 
-    def _poll_status(self):
-        """Keep the views in sync with external changes: the file list with
+    def _watch_repo(self, path):
+        """(Re)start filesystem monitoring for the given repo. Falls back to a
+        slow timer only if the tree is too large to watch entirely."""
+        self._stop_watching()
+        try:
+            self._watcher = FolderWatcher(path, self._sync_from_disk)
+        except OSError:
+            self._watcher = None
+        if self._watcher is None or self._watcher.overflowed:
+            # Couldn't watch everything — poll slowly as a safety net.
+            self._fallback_poll_id = GLib.timeout_add(3000, self._fallback_poll)
+
+    def _stop_watching(self):
+        if self._watcher is not None:
+            self._watcher.stop()
+            self._watcher = None
+        if self._fallback_poll_id is not None:
+            GLib.source_remove(self._fallback_poll_id)
+            self._fallback_poll_id = None
+
+    def _fallback_poll(self):
+        if self.git is None:
+            self._fallback_poll_id = None
+            return False
+        self._sync_from_disk()
+        return True
+
+    def _sync_from_disk(self):
+        """Reconcile the views with what's on disk: the file list with
         working-tree edits, and the journal/branches with commits made outside
-        the app (commit, amend, checkout, merge, pull, reset)."""
+        the app (commit, amend, checkout, merge, pull, reset). Runs the git
+        queries off the UI thread; applies results on the UI loop."""
         if self.git is None or self._poll_busy or self._remote_busy:
-            return True
+            return
         self._poll_busy = True
         git = self.git
 
@@ -305,7 +336,6 @@ class MainWindow(Gtk.ApplicationWindow):
             return False
 
         threading.Thread(target=work, daemon=True).start()
-        return True
 
     # ------------------------------------------------------------- refresh
 
@@ -378,6 +408,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.commit_panel.set_message(self._drafts.get(path, ''))
         self._last_rev = None
         self.refresh_repo_views()
+        self._watch_repo(path)
         self.config.set_state('selected_repo', path, save=False)
         self.config.set_state('drafts', self._drafts)
 
@@ -404,6 +435,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._drafts.pop(path, None)
         self.config.set_state('drafts', self._drafts, save=False)
         if self.git and self.git.path == path:
+            self._stop_watching()
             self.git = None
             self.repos_panel.set_active(None)
             self.branches_panel.set_branches([], None)
