@@ -39,6 +39,10 @@ CSS = b"""
 class MainWindow(Gtk.ApplicationWindow):
     def __init__(self, app):
         super().__init__(application=app, title='VisualGit - %s' % __version__)
+        try:
+            Gtk.Window.set_default_icon_from_file(dialogs.LOGO_PATH)
+        except GLib.Error:
+            Gtk.Window.set_default_icon_name('applications-development')
         self.config = Config()
         self.git = None
         self._drafts = dict(self.config.get_state('drafts', {}))
@@ -102,7 +106,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.add(root)
 
         self.toolbar = Toolbar(on_add=self.add_repository,
-                               on_pull=self.pull, on_push=self.push)
+                               on_pull=self.pull, on_push=self.push,
+                               on_about=self.show_about)
         root.pack_start(self.toolbar, False, False, 0)
 
         overlay = Gtk.Overlay()
@@ -116,6 +121,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.repos_panel = ReposPanel(on_selected=self._on_repo_selected,
                                       on_set_credentials=self.set_credentials,
                                       on_set_identity=self.set_identity,
+                                      on_set_remote=self.set_remote,
                                       on_remove=self.remove_repository)
         self.branches_panel = BranchesPanel(on_merge_from=self.merge_from,
                                             on_checkout=self.checkout_branch)
@@ -364,6 +370,9 @@ class MainWindow(Gtk.ApplicationWindow):
 
     # ------------------------------------------------------------- toolbar
 
+    def show_about(self):
+        dialogs.about_dialog(self, __version__)
+
     def add_repository(self):
         path = dialogs.choose_repository_folder(self)
         if not path:
@@ -390,14 +399,81 @@ class MainWindow(Gtk.ApplicationWindow):
             self.diff_panel.clear()
         self._reload_repo_list()
 
+    def _ensure_remote(self, verb):
+        """If the repo has no remote, ask for a server URL and add it as
+        'origin'. Returns True to proceed, False if the user cancelled."""
+        try:
+            if self.git.remotes():
+                return True
+        except GitError:
+            return True  # let the operation surface the real error
+        url = dialogs.input_dialog(
+            self, 'Set remote — %s' % os.path.basename(self.git.path),
+            'Server URL:',
+            note='%s needs a remote, but none is configured. Enter the '
+                 'repository URL; it will be saved as "origin".' % verb)
+        if not url:
+            return False
+        try:
+            self.git.set_remote('origin', url)
+        except GitError as exc:
+            self.toast.show_message('Could not set remote: %s' % exc)
+            return False
+        self.toast.show_message('Remote "origin" set to %s' % url)
+        return True
+
+    def set_remote(self, path):
+        """Set/change the repo's 'origin' URL from the context menu."""
+        git = self.git if self.git and self.git.path == path else Git(path)
+        try:
+            current = git.get_remote_url('origin')
+        except GitError:
+            current = ''
+        url = dialogs.input_dialog(
+            self, 'Set remote — %s' % os.path.basename(path),
+            'Server URL:', text=current,
+            note='The repository URL, saved as "origin" and used for pushing '
+                 'and pulling.')
+        if not url:
+            return
+        try:
+            git.set_remote('origin', url)
+        except GitError as exc:
+            self.toast.show_message('Could not set remote: %s' % exc)
+            return
+        self.toast.show_message('Remote "origin" set for %s.'
+                                % os.path.basename(path))
+
+    def _credentials_set(self):
+        """True if a username and password are both stored for the repo."""
+        username, password = self.config.credentials(self.git.path)
+        return bool(username and password)
+
+    def _ask_credentials(self, verb):
+        """Show the credentials modal for the current repo. Returns True if
+        the user saved credentials, False if they cancelled."""
+        return self.set_credentials(
+            self.git.path,
+            note='%s needs credentials for this repository, which are not set. '
+                 'Enter the username and password; they will be saved '
+                 '(encrypted) and used for pushing and pulling.' % verb)
+
     def pull(self):
         if not self._require_repo() or self._remote_in_progress():
+            return
+        if not self._ensure_remote('Pull'):
+            return
+        if not self._credentials_set() and not self._ask_credentials('Pull'):
             return
         self.toast.show_message('Pulling…')
         self._run_async(self.git.pull, self._on_remote_done('Pull'))
 
     def push(self):
         if not self._require_repo() or self._remote_in_progress():
+            return
+        if not self._ensure_remote('Push'):
+            return
+        if not self._credentials_set() and not self._ask_credentials('Push'):
             return
         self.toast.show_message('Pushing…')
         self._run_async(self.git.push, self._on_remote_done('Push'))
@@ -702,13 +778,16 @@ class MainWindow(Gtk.ApplicationWindow):
         self.toast.show_message('Identity saved for %s.' % os.path.basename(path))
         return True
 
-    def set_credentials(self, path):
+    def set_credentials(self, path, note=None):
+        """Show the credentials modal for a repo. Returns True if saved."""
         username, old_password = self.config.credentials(path)
         result = dialogs.credentials_dialog(self, os.path.basename(path), username,
-                                            has_password=bool(old_password))
+                                            has_password=bool(old_password),
+                                            note=note)
         if result is None:
-            return
+            return False
         # An empty password field means "keep the stored one", not "erase it".
         password = result[1] or old_password
         self.config.set_credentials(path, result[0], password)
         self.toast.show_message('Credentials saved for %s.' % os.path.basename(path))
+        return True

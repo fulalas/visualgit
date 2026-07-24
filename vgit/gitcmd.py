@@ -294,7 +294,37 @@ class Git:
         self._run('commit', '-m', message)
 
     def pull(self):
-        self._run('pull', auth=True, env={'GIT_EDITOR': 'true'})
+        proc = self._run('pull', '--no-edit', auth=True,
+                         env={'GIT_EDITOR': 'true'}, check=False)
+        if proc.returncode == 0:
+            return
+        err = proc.stderr or ''
+        low = err.lower()
+        if 'no tracking information' in low or 'no upstream' in low:
+            # The branch has no upstream, so a plain pull fetches but won't
+            # merge. Pull the same-named branch from the effective remote.
+            branch = self._run('symbolic-ref', '--short', 'HEAD').stdout.strip()
+            self._run('pull', '--no-edit', self._push_remote(), branch,
+                      auth=True, env={'GIT_EDITOR': 'true'})
+        else:
+            raise GitError(err.strip() or 'git pull failed')
+
+    def remotes(self):
+        """Names of configured remotes (e.g. ['origin'])."""
+        proc = self._run('remote', check=False)
+        return proc.stdout.split() if proc.returncode == 0 else []
+
+    def get_remote_url(self, name='origin'):
+        """URL of the named remote, or '' if it doesn't exist."""
+        proc = self._run('remote', 'get-url', name, check=False)
+        return proc.stdout.strip() if proc.returncode == 0 else ''
+
+    def set_remote(self, name, url):
+        """Point `name` at `url`, adding the remote if it doesn't exist yet."""
+        if name in self.remotes():
+            self._run('remote', 'set-url', name, url)
+        else:
+            self._run('remote', 'add', name, url)
 
     def _push_remote(self):
         """Remote to push to: the branch's configured remote, else the only

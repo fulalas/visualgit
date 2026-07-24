@@ -3,7 +3,10 @@ import os
 
 import gi
 gi.require_version('Gtk', '3.0')
-from gi.repository import Gtk
+gi.require_version('GdkPixbuf', '2.0')
+from gi.repository import Gtk, GdkPixbuf, GLib
+
+LOGO_PATH = os.path.join(os.path.dirname(__file__), 'logo.svg')
 
 
 def choose_repository_folder(parent):
@@ -35,6 +38,46 @@ def choose_git_folder(parent):
     return folder
 
 
+def input_dialog(parent, title, label, text='', note=None):
+    """One-field text prompt. Returns the entered text (stripped) or None."""
+    dialog = Gtk.Dialog(title=title, parent=parent, modal=True)
+    dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
+                       Gtk.STOCK_OK, Gtk.ResponseType.OK)
+    dialog.set_default_response(Gtk.ResponseType.OK)
+    dialog.set_default_size(480, -1)
+    entry = Gtk.Entry(text=text, activates_default=True)
+    box = dialog.get_content_area()
+    box.pack_start(_labeled_grid([(label, entry)]), True, True, 0)
+    if note:
+        note_label = Gtk.Label(label=note, xalign=0, wrap=True,
+                               max_width_chars=56,
+                               margin_start=12, margin_end=12, margin_bottom=12)
+        note_label.get_style_context().add_class('dim-label')
+        box.pack_start(note_label, False, False, 0)
+    dialog.show_all()
+    result = entry.get_text().strip() if dialog.run() == Gtk.ResponseType.OK else None
+    dialog.destroy()
+    return result
+
+
+def about_dialog(parent, version):
+    dialog = Gtk.AboutDialog(transient_for=parent, modal=True)
+    try:
+        dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(LOGO_PATH, 96, 96))
+    except GLib.Error:
+        dialog.set_logo_icon_name('applications-development')
+    dialog.set_program_name('VisualGit')
+    dialog.set_version(version)
+    dialog.set_comments('A simple, intentionally minimal git GUI client.\n'
+                        'All git operations shell out to the system git.')
+    dialog.set_website('https://github.com/fulalas/visualgit')
+    dialog.set_website_label('Project page')
+    dialog.set_copyright('Python 3 · GTK 3 (PyGObject)')
+    dialog.set_license_type(Gtk.License.MIT_X11)
+    dialog.run()
+    dialog.destroy()
+
+
 def message_dialog(parent, title, text, kind=Gtk.MessageType.WARNING):
     dialog = Gtk.MessageDialog(parent=parent, modal=True, message_type=kind,
                                buttons=Gtk.ButtonsType.OK, text=title)
@@ -54,8 +97,10 @@ def _labeled_grid(rows):
     return grid
 
 
-def credentials_dialog(parent, repo_name, username='', has_password=False):
-    """Ask for user/password for one repository. Returns (user, password) or None."""
+def credentials_dialog(parent, repo_name, username='', has_password=False,
+                       note=None):
+    """Ask for user/password for one repository. Returns (user, password) or
+    None. `note` is an optional explanation shown at the bottom."""
     dialog = Gtk.Dialog(title='Credentials — %s' % repo_name, parent=parent,
                         modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -68,9 +113,16 @@ def credentials_dialog(parent, repo_name, username='', has_password=False):
     pass_entry.set_input_purpose(Gtk.InputPurpose.PASSWORD)
     if has_password:
         pass_entry.set_placeholder_text('leave empty to keep the current password')
-    dialog.get_content_area().pack_start(
+    box = dialog.get_content_area()
+    box.pack_start(
         _labeled_grid([('Username:', user_entry), ('Password:', pass_entry)]),
         True, True, 0)
+    if note:
+        note_label = Gtk.Label(label=note, xalign=0, wrap=True,
+                               max_width_chars=54,
+                               margin_start=12, margin_end=12, margin_bottom=12)
+        note_label.get_style_context().add_class('dim-label')
+        box.pack_start(note_label, False, False, 0)
     dialog.show_all()
 
     result = None
