@@ -47,6 +47,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.git = None
         self._drafts = dict(self.config.get_state('drafts', {}))
         self._last_status = None
+        self._last_rev = None  # (HEAD hash, branch) — detects external commits
         self._poll_busy = False
         self._remote_busy = False
         self._load_css()
@@ -270,24 +271,34 @@ class MainWindow(Gtk.ApplicationWindow):
         self.files_panel.set_files(entries)
 
     def _poll_status(self):
-        """Keep the file list in sync with external changes to the folder."""
+        """Keep the views in sync with external changes: the file list with
+        working-tree edits, and the journal/branches with commits made outside
+        the app (commit, amend, checkout, merge, pull, reset)."""
         if self.git is None or self._poll_busy or self._remote_busy:
             return True
         self._poll_busy = True
         git = self.git
 
         def work():
+            data = {}
             try:
-                entries = git.status()
+                data['rev'] = (git.head_hash(), git.current_branch())
+                data['status'] = git.status()
             except (GitError, OSError):
-                entries = None
-            GLib.idle_add(done, entries)
+                data = None
+            GLib.idle_add(done, data)
 
-        def done(entries):
+        def done(data):
             self._poll_busy = False
-            if (entries is not None and git is self.git
-                    and entries != self._last_status):
-                self._apply_status(entries)
+            if data is None or git is not self.git:
+                return False
+            if data['rev'] != self._last_rev:
+                # HEAD or branch moved externally — refresh everything (this
+                # also updates the file list and sets _last_rev).
+                self._last_rev = data['rev']
+                self.refresh_repo_views()
+            elif data['status'] != self._last_status:
+                self._apply_status(data['status'])
                 selected = self.files_panel.selected_entries()
                 if len(selected) == 1:
                     self._on_file_selected(selected[0])
@@ -353,6 +364,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.diff_panel.clear()
             self.repos_panel.update_branch(git.path, os.path.basename(git.path),
                                            data['current'])
+            self._last_rev = (data['head'], data['current'])
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -364,6 +376,7 @@ class MainWindow(Gtk.ApplicationWindow):
                        askpass=self.config.askpass_path())
         self.repos_panel.set_active(path)
         self.commit_panel.set_message(self._drafts.get(path, ''))
+        self._last_rev = None
         self.refresh_repo_views()
         self.config.set_state('selected_repo', path, save=False)
         self.config.set_state('drafts', self._drafts)
