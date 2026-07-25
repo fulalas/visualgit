@@ -65,7 +65,7 @@ class JournalPanel(Panel):
 
     def _on_row_activated(self, view, path, _column):
         row = self.store[path]
-        self.on_show_changes(row[COL_HASH], row[COL_SHORT], row[COL_SUBJECT])
+        self.on_show_changes(row[COL_HASH], row[COL_SHORT])
 
     def _on_button_press(self, view, event):
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 3:

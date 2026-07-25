@@ -815,10 +815,10 @@ class MainWindow(Gtk.ApplicationWindow):
         clipboard.store()
         self.toast.show_message('Commit hash copied: %s' % commit[:12])
 
-    def show_commit_changes(self, commit, short, subject):
+    def show_commit_changes(self, commit, short):
         if not self._require_repo():
             return
-        window = CommitWindow(self, self.git, commit, short, subject)
+        window = CommitWindow(self, self.git, commit, short)
         self._commit_windows.append(window)
         window.connect('destroy', lambda w: self._commit_windows.remove(w))
 
