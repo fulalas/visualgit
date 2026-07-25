@@ -11,11 +11,12 @@ WEIGHT_NORMAL, WEIGHT_BOLD = 400, 700
 
 
 class JournalPanel(Panel):
-    def __init__(self, on_copy_hash, on_edit_commit, on_checkout):
+    def __init__(self, on_copy_hash, on_edit_commit, on_checkout, on_show_changes):
         super().__init__('Journal')
         self.on_copy_hash = on_copy_hash
         self.on_edit_commit = on_edit_commit
         self.on_checkout = on_checkout
+        self.on_show_changes = on_show_changes
 
         self.store = Gtk.ListStore(str, str, str, str, str, int)
         self.view = Gtk.TreeView(model=self.store)
@@ -43,6 +44,7 @@ class JournalPanel(Panel):
         # it exists only to give the Date column a resize grip.
         add_filler_column(self.view, expand=False)
         self.view.connect('button-press-event', self._on_button_press)
+        self.view.connect('row-activated', self._on_row_activated)
         self.scrolled.add(self.view)
 
     def get_column_widths(self):
@@ -60,6 +62,10 @@ class JournalPanel(Panel):
             weight = WEIGHT_BOLD if c['hash'] == head else WEIGHT_NORMAL
             self.store.append([c['hash'], c['short'], c['refs'],
                                c['subject'], c['date'], weight])
+
+    def _on_row_activated(self, view, path, _column):
+        row = self.store[path]
+        self.on_show_changes(row[COL_HASH], row[COL_SHORT], row[COL_SUBJECT])
 
     def _on_button_press(self, view, event):
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 3:

@@ -3,32 +3,11 @@ import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
 
-from vgit.ui.panel import Panel, popup_menu, row_at_event, add_filler_column
+from vgit.ui.panel import (Panel, popup_menu, row_at_event, add_filler_column,
+                           state_icon)
 
 (COL_NAME, COL_STATE, COL_DIR, COL_PATH, COL_STAGED, COL_UNSTAGED,
  COL_UNTRACKED, COL_ICON) = range(8)
-
-# state label -> (glyph, color); distinct glyphs keep the states readable
-# without relying on color alone.
-_STATE_ICONS = {
-    'Untracked': ('?', '#9e9e9e'),
-    'Modified': ('●', '#ff9800'),
-    'Staged': ('●', '#4caf50'),
-    'Added': ('+', '#4caf50'),
-    'Deleted': ('−', '#ef5350'),
-    'Deleted, staged': ('−', '#ef5350'),
-    'Renamed': ('→', '#64b5f6'),
-    'Copied': ('→', '#64b5f6'),
-    'Conflict': ('!', '#d81b60'),
-}
-
-
-def _state_icon(state):
-    if state.startswith('Staged + '):
-        glyph, color = '±', '#ff9800'
-    else:
-        glyph, color = _STATE_ICONS.get(state, ('●', '#9e9e9e'))
-    return '<span foreground="%s" weight="bold">%s</span>' % (color, glyph)
 
 
 class FilesPanel(Panel):
@@ -107,7 +86,7 @@ class FilesPanel(Panel):
         for e in entries:
             self.store.append([e['name'], e['state'], e['dir'], e['path'],
                                e['staged'], e['unstaged'], e['untracked'],
-                               _state_icon(e['state'])])
+                               state_icon(e['state'])])
         # Keep _rebuilding set while re-selecting: each select_iter would
         # otherwise fire selection-changed and load a diff per restored row.
         selection = self.view.get_selection()

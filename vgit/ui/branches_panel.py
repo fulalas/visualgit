@@ -14,11 +14,13 @@ COL_MARKUP, COL_NAME, COL_KIND, COL_CURRENT = range(4)
 
 
 class BranchesPanel(Panel):
-    def __init__(self, on_merge_from, on_checkout):
-        """on_checkout(name, kind) with kind 'local' or 'remote'."""
+    def __init__(self, on_merge_from, on_checkout, on_delete):
+        """on_checkout(name, kind) and on_delete(name, kind) with kind
+        'local' or 'remote'."""
         super().__init__('Branches')
         self.on_merge_from = on_merge_from
         self.on_checkout = on_checkout
+        self.on_delete = on_delete
 
         self.store = Gtk.TreeStore(str, str, str, bool)
         self.view = Gtk.TreeView(model=self.store)
@@ -88,7 +90,8 @@ class BranchesPanel(Panel):
         if kind == 'header' or is_current:
             return True
         popup_menu(view, event, [
-            ("Checkout '%s'" % name, lambda: self.on_checkout(name, kind)),
-            ("Merge from '%s'" % name, lambda: self.on_merge_from(name)),
+            ('Checkout', lambda: self.on_checkout(name, kind)),
+            ('Merge from', lambda: self.on_merge_from(name)),
+            ('Delete', lambda: self.on_delete(name, kind)),
         ])
         return True

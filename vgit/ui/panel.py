@@ -17,6 +17,31 @@ class Panel(Gtk.Box):
         self.pack_start(self.scrolled, True, True, 0)
 
 
+# state label -> (glyph, color); distinct glyphs keep the states readable
+# without relying on color alone. Shared by the Files panel and the per-commit
+# changes window.
+_STATE_ICONS = {
+    'Untracked': ('?', '#9e9e9e'),
+    'Modified': ('●', '#ff9800'),
+    'Staged': ('●', '#4caf50'),
+    'Added': ('+', '#4caf50'),
+    'Deleted': ('−', '#ef5350'),
+    'Deleted, staged': ('−', '#ef5350'),
+    'Renamed': ('→', '#64b5f6'),
+    'Copied': ('→', '#64b5f6'),
+    'Conflict': ('!', '#d81b60'),
+}
+
+
+def state_icon(state):
+    """Pango markup for a status glyph, given a human-readable state label."""
+    if state.startswith('Staged + '):
+        glyph, color = '±', '#ff9800'
+    else:
+        glyph, color = _STATE_ICONS.get(state, ('●', '#9e9e9e'))
+    return '<span foreground="%s" weight="bold">%s</span>' % (color, glyph)
+
+
 def add_filler_column(view, expand=True):
     """Append a blank trailing column. GtkTreeView never draws a resize grip on
     its final column, so without this the last data column can't be resized —

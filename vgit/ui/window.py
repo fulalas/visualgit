@@ -14,6 +14,7 @@ from vgit.gitcmd import Git, GitError
 from vgit.ui import dialogs
 from vgit.ui.branches_panel import BranchesPanel
 from vgit.ui.commit_panel import CommitPanel
+from vgit.ui.commit_window import CommitWindow
 from vgit.ui.diff_panel import DiffPanel
 from vgit.ui.files_panel import FilesPanel
 from vgit.ui.journal_panel import JournalPanel
@@ -54,6 +55,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self._resync_pending = False  # a change arrived while busy; re-sync after
         self._watcher = None       # FolderWatcher for the current repo
         self._fallback_poll_id = None
+        self._commit_windows = []  # open non-modal per-commit diff windows
         self._load_css()
         self._build_ui()
         self._restore_window_state()
@@ -128,7 +130,8 @@ class MainWindow(Gtk.ApplicationWindow):
                                       on_set_remote=self.set_remote,
                                       on_remove=self.remove_repository)
         self.branches_panel = BranchesPanel(on_merge_from=self.merge_from,
-                                            on_checkout=self.checkout_branch)
+                                            on_checkout=self.checkout_branch,
+                                            on_delete=self.delete_branch)
         self.files_panel = FilesPanel(on_file_selected=self._on_file_selected,
                                       on_stage=self._stage_files,
                                       on_unstage=self._unstage_files,
@@ -143,7 +146,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self.diff_panel = DiffPanel()
         self.journal_panel = JournalPanel(on_copy_hash=self.copy_hash,
                                           on_edit_commit=self.edit_commit,
-                                          on_checkout=self.checkout_commit)
+                                          on_checkout=self.checkout_commit,
+                                          on_show_changes=self.show_commit_changes)
 
         left = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
         left.pack1(self.repos_panel, True, False)
@@ -223,6 +227,9 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_key_press(self, _widget, event):
         ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
         alt = event.state & Gdk.ModifierType.MOD1_MASK
+        if ctrl and event.keyval in (Gdk.KEY_q, Gdk.KEY_Q):
+            self.close()
+            return True
         if ctrl and event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter):
             self.do_commit()
             return True
@@ -759,6 +766,34 @@ class MainWindow(Gtk.ApplicationWindow):
         self.toast.show_message("Switched to '%s'." % self.git.current_branch())
         self.refresh_repo_views()
 
+    def delete_branch(self, name, kind):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        if kind == 'remote':
+            text = ("Branch '%s' will be deleted on the remote for everyone."
+                    % name)
+        else:
+            text = ("Branch '%s' will be permanently deleted, including any "
+                    "commits not merged elsewhere." % name)
+        if not dialogs.confirm_dialog(self, 'Delete?', text):
+            return
+        if kind == 'remote':
+            # Deleting on the remote is a network op — run it off the UI thread
+            # like pull/push, so a slow/unreachable remote can't freeze the app.
+            if not self._remote_preflight('Delete'):
+                return
+            self.toast.show_message("Deleting '%s'…" % name)
+            self._run_async(lambda: self.git.delete_remote_branch(name),
+                            self._on_remote_done('Delete'))
+            return
+        try:
+            self.git.delete_local_branch(name)
+        except GitError as exc:
+            self.toast.show_message('Delete failed: %s' % exc)
+            return
+        self.toast.show_message("Deleted '%s'." % name)
+        self.refresh_repo_views()
+
     def merge_from(self, branch):
         if not self._require_repo() or self._remote_in_progress():
             return
@@ -779,6 +814,13 @@ class MainWindow(Gtk.ApplicationWindow):
         clipboard.set_text(commit, -1)
         clipboard.store()
         self.toast.show_message('Commit hash copied: %s' % commit[:12])
+
+    def show_commit_changes(self, commit, short, subject):
+        if not self._require_repo():
+            return
+        window = CommitWindow(self, self.git, commit, short, subject)
+        self._commit_windows.append(window)
+        window.connect('destroy', lambda w: self._commit_windows.remove(w))
 
     def checkout_commit(self, commit):
         if not self._require_repo() or self._remote_in_progress():

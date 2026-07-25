@@ -248,6 +248,50 @@ class Git:
         args += ['--', path]
         return self._run(*args).stdout
 
+    _COMMIT_STATES = {'A': 'Added', 'M': 'Modified', 'D': 'Deleted',
+                      'R': 'Renamed', 'C': 'Copied', 'T': 'Type changed'}
+
+    def commit_files(self, commit):
+        """Files touched by `commit`, each as a dict like `status()` entries
+        (name/dir/path/state). Compared against the first parent — `-m
+        --first-parent` so merge commits report changes too (a plain
+        `git show` emits nothing for a merge)."""
+        proc = self._run('show', '--format=', '--name-status', '-M', '-m',
+                         '--first-parent', '-z', commit, check=False)
+        if proc.returncode != 0:
+            return []
+        tokens = proc.stdout.split('\0')
+        entries = []
+        index = 0
+        while index < len(tokens):
+            status = tokens[index]
+            index += 1
+            if not status:
+                continue
+            code = status[0]
+            if code in ('R', 'C'):
+                path = tokens[index + 1] if index + 1 < len(tokens) else ''
+                index += 2  # origin path, then new path
+            else:
+                path = tokens[index] if index < len(tokens) else ''
+                index += 1
+            if not path:
+                continue
+            entries.append({
+                'path': path,
+                'name': os.path.basename(path),
+                'dir': os.path.dirname(path),
+                'state': self._COMMIT_STATES.get(code, code),
+            })
+        entries.sort(key=lambda e: (e['dir'], e['name']))
+        return entries
+
+    def commit_file_diff(self, commit, path):
+        """Unified diff for a single file within `commit`, against its first
+        parent (works for merge commits too)."""
+        return self._run('show', '--format=', '-M', '-m', '--first-parent',
+                         commit, '--', path, check=False).stdout
+
     def log(self, limit=300):
         fmt = SEP.join(['%H', '%h', '%an', '%ae', '%ad', '%D', '%s'])
         # --all + HEAD: keep the full history visible (every branch, remote
@@ -423,6 +467,16 @@ class Git:
                           auth=True)
             else:
                 raise GitError(err.strip() or 'git push failed')
+
+    def delete_local_branch(self, name):
+        """Delete a local branch. Uses -D so an unmerged branch still deletes;
+        the UI confirms before calling this."""
+        self._run('branch', '-D', name)
+
+    def delete_remote_branch(self, remote_ref):
+        """Delete a branch on its remote, e.g. 'origin/feature'."""
+        remote, _, short = remote_ref.partition('/')
+        self._run('push', remote, '--delete', short, auth=True)
 
     def merge(self, branch):
         self._run('merge', '--no-edit', branch, env={'GIT_EDITOR': 'true'})
