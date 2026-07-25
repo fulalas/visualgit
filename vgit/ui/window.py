@@ -340,8 +340,13 @@ class MainWindow(Gtk.ApplicationWindow):
                 # also updates the file list and sets _last_rev).
                 self._last_rev = data['rev']
                 self.refresh_repo_views()
-            elif data['status'] != self._last_status:
-                self._apply_status(data['status'])
+            else:
+                # HEAD held still. Re-apply the file list only when the status
+                # label set actually changed, but always re-fetch the selected
+                # file's diff: a content-only edit leaves `git status`
+                # byte-identical yet still changes the diff we're showing.
+                if data['status'] != self._last_status:
+                    self._apply_status(data['status'])
                 selected = self.files_panel.selected_entries()
                 if len(selected) == 1:
                     self._on_file_selected(selected[0])
