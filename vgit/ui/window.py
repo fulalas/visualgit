@@ -43,7 +43,7 @@ class MainWindow(Gtk.ApplicationWindow):
         try:
             Gtk.Window.set_default_icon_from_file(dialogs.LOGO_PATH)
         except GLib.Error:
-            Gtk.Window.set_default_icon_name(dialogs.FALLBACK_ICON)
+            pass  # bundled logo unreadable — fall back to the WM default icon
         self.config = Config()
         self.git = None
         self._drafts = dict(self.config.get_state('drafts', {}))

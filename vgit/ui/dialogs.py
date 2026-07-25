@@ -8,8 +8,7 @@ from gi.repository import Gtk, GdkPixbuf, GLib
 
 from vgit.resources import resource_path
 
-LOGO_PATH = resource_path('vgit', 'ui', 'logo.svg')
-FALLBACK_ICON = 'applications-development'  # themed icon used if the SVG fails
+LOGO_PATH = resource_path('vgit', 'ui', 'icons', 'logo.svg')
 SET_DIALOG_WIDTH = 593  # width of the 'Set …' repo-context modals
 
 
@@ -73,7 +72,7 @@ def about_dialog(parent, version):
     try:
         dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(LOGO_PATH, 96, 96))
     except GLib.Error:
-        dialog.set_logo_icon_name(FALLBACK_ICON)
+        pass  # bundled logo unreadable — show the dialog without a logo
     dialog.set_program_name('VisualGit')
     dialog.set_version(version)
     dialog.set_comments('A simple, intentionally minimal git GUI client.\n'

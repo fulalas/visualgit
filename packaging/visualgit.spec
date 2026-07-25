@@ -18,7 +18,9 @@ a = Analysis(
     binaries=[],
     datas=[
         (os.path.join(ROOT, 'vgit', 'version.txt'), 'vgit'),
-        (os.path.join(ROOT, 'vgit', 'ui', 'logo.svg'), 'vgit/ui'),
+        # App logo + toolbar icons, bundled so the app does not rely on the
+        # system icon theme (which the prune below drops from the bundle).
+        (os.path.join(ROOT, 'vgit', 'ui', 'icons'), 'vgit/ui/icons'),
     ],
     hiddenimports=[],
     hookspath=[],
