@@ -1,8 +1,35 @@
 """All git interaction, via the git CLI (one subprocess per operation)."""
 import os
+import stat
 import subprocess
+import tempfile
 
 SEP = '\x1f'
+
+# Handed to git via GIT_ASKPASS to answer username/password prompts from
+# environment variables set only for that git subprocess. Written to a fresh
+# temp file per invocation (see _write_askpass) and removed immediately after,
+# so nothing persists on disk.
+_ASKPASS_SCRIPT = """#!/bin/sh
+case "$1" in
+    [Uu]sername*) printf '%s\\n' "$VGIT_USERNAME" ;;
+    *) printf '%s\\n' "$VGIT_PASSWORD" ;;
+esac
+"""
+
+
+def _write_askpass():
+    """Write the GIT_ASKPASS helper to a fresh temp file (0700) and return its
+    path. The caller must unlink it once git has finished."""
+    fd, path = tempfile.mkstemp(prefix='vgit-askpass-', suffix='.sh')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            f.write(_ASKPASS_SCRIPT)
+    except OSError:
+        os.unlink(path)
+        raise
+    os.chmod(path, stat.S_IRWXU)
+    return path
 
 # Which git executable to invoke. Defaults to 'git' (found on PATH); can be
 # pointed at an explicit path via set_git_binary() when git is elsewhere.
@@ -37,21 +64,24 @@ class GitError(Exception):
 
 
 class Git:
-    def __init__(self, path, cred_provider=None, askpass=None):
+    def __init__(self, path, cred_provider=None):
         self.path = path
         self.cred_provider = cred_provider
-        self.askpass = askpass
 
     def _run(self, *args, auth=False, env=None, check=True, ok_codes=(0,)):
         environ = os.environ.copy()
         # Force English messages: error handling matches on git's output
         # (e.g. 'no upstream', 'tell me who you are').
         environ['LC_ALL'] = 'C'
+        askpass_file = None
         if auth:
             environ['GIT_TERMINAL_PROMPT'] = '0'
             creds = self.cred_provider() if self.cred_provider else None
-            if creds and creds[0] and self.askpass:
-                environ['GIT_ASKPASS'] = self.askpass
+            if creds and creds[0]:
+                # Generated on the fly and deleted below, so no helper script
+                # is left behind in the user's config folder.
+                askpass_file = _write_askpass()
+                environ['GIT_ASKPASS'] = askpass_file
                 environ['VGIT_USERNAME'] = creds[0]
                 environ['VGIT_PASSWORD'] = creds[1] or ''
         if env:
@@ -63,6 +93,12 @@ class Git:
             # e.g. the git binary is missing/misconfigured — surface it the
             # same way as any other git failure so callers can show a toast.
             raise GitError('Could not run git (%s): %s' % (_GIT_BINARY, exc))
+        finally:
+            if askpass_file:
+                try:
+                    os.unlink(askpass_file)
+                except OSError:
+                    pass
         if check and proc.returncode not in ok_codes:
             message = proc.stderr.strip() or proc.stdout.strip() or \
                 'git %s failed (exit %d)' % (args[0], proc.returncode)

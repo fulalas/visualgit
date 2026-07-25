@@ -10,17 +10,7 @@ import stat
 CONFIG_DIR = os.path.join(
     os.environ.get('XDG_CONFIG_HOME', os.path.expanduser('~/.config')), 'visualgit')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
-ASKPASS_FILE = os.path.join(CONFIG_DIR, 'askpass.sh')
 KEY_FILE = os.path.join(CONFIG_DIR, 'key')
-
-# Helper handed to git via GIT_ASKPASS; answers username/password prompts
-# from environment variables set only for that git subprocess.
-ASKPASS_SCRIPT = """#!/bin/sh
-case "$1" in
-    [Uu]sername*) printf '%s\\n' "$VGIT_USERNAME" ;;
-    *) printf '%s\\n' "$VGIT_PASSWORD" ;;
-esac
-"""
 
 
 class Config:
@@ -138,10 +128,3 @@ class Config:
                 changed = True
         if changed:
             self.save()
-
-    def askpass_path(self):
-        if not os.path.isfile(ASKPASS_FILE):
-            with open(ASKPASS_FILE, 'w', encoding='utf-8') as f:
-                f.write(ASKPASS_SCRIPT)
-        os.chmod(ASKPASS_FILE, stat.S_IRWXU)
-        return ASKPASS_FILE

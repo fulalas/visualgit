@@ -422,8 +422,7 @@ class MainWindow(Gtk.ApplicationWindow):
     def _on_repo_selected(self, path):
         self._save_current_draft()
         self.git = Git(path,
-                       cred_provider=lambda p=path: self.config.credentials(p),
-                       askpass=self.config.askpass_path())
+                       cred_provider=lambda p=path: self.config.credentials(p))
         self.repos_panel.set_active(path)
         self.commit_panel.set_message(self._drafts.get(path, ''))
         self._last_rev = None
