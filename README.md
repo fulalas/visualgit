@@ -3,6 +3,8 @@
 A simple, intentionally minimal git GUI client (GTK3 + Python). All git
 operations shell out to the system `git`.
 
+<img width="1396" height="1249" alt="visualGit" src="https://github.com/user-attachments/assets/a0b655ed-2889-4296-9979-26ed7b1f159a" />
+
 ## Run
 
 ```
@@ -14,7 +16,7 @@ Requires: Python 3, PyGObject (GTK 3), git.
 If `git` is not on your `PATH`, VisualGit asks for the folder containing the
 git program on startup and remembers it (saved as `git_binary` in the config).
 
-## Build (single binary)
+## Build (Linux only)
 
 `./build.sh` produces a single-file `./visualgit` (Linux x86_64) via
 PyInstaller (build artifacts live in `build/`, safe to delete). CPython, the
