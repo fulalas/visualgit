@@ -20,18 +20,28 @@ class FolderWatcher:
     # the parts that matter (HEAD, refs, logs) live directly under .git.
     IGNORE_PREFIXES = (os.path.join('.git', 'objects'),
                        os.path.join('.git', 'lfs'))
-    # .git internal *files* to ignore, matched exactly. The index is the key
-    # one: `git status` — which our own refresh runs — rewrites .git/index to
-    # update its stat cache, so reacting to that would spin an endless
-    # watch -> status -> rewrite -> watch loop. Real staging still surfaces via
-    # the working-tree file events that accompany it. Exact names (not a prefix)
-    # so unrelated paths like .git/index-pack-* aren't swept up.
-    IGNORE_FILES = frozenset({os.path.join('.git', 'index'),
-                              os.path.join('.git', 'index.lock')})
+    # .git internal *files* to ignore, matched exactly. index.lock is pure
+    # churn (created/renamed on every index write). .git/index itself is NOT
+    # ignored outright: `git status` — which our own refresh runs — rewrites it
+    # every single time (new mtime and inode) to update its stat cache, so
+    # reacting to that would spin an endless watch -> status -> rewrite loop;
+    # but an external CLI `git add` / `reset` / `rm --cached` also writes only
+    # the index and must still refresh the panel. Since git status gives no
+    # stable signature to compare against, _on_event instead ignores index
+    # events that land inside the grace window opened by note_refreshed() right
+    # after each of our own refreshes — those are our own rewrites; anything
+    # outside it is external.
+    IGNORE_FILES = frozenset({os.path.join('.git', 'index.lock')})
     # Ephemeral directories (matched by name, at any depth) that would blow the
     # watch budget and are virtually always git-ignored anyway.
     IGNORE_NAMES = frozenset({'node_modules', '__pycache__', '.venv', 'venv',
                               '.mypy_cache', '.pytest_cache', '.tox'})
+    # How long after one of our own refreshes to treat index writes as self-
+    # induced. Must comfortably exceed DEBOUNCE_MS plus event-delivery latency
+    # so the status rewrite's event always lands inside it. The only cost of a
+    # generous window is that an external index change in the ~1.5s after a
+    # refresh waits for the next event to surface.
+    SELF_WRITE_GRACE_US = 1_500_000
 
     def __init__(self, root, on_change, on_ready=None):
         """on_ready(overflowed) is called on the UI thread once monitoring is
@@ -43,7 +53,15 @@ class FolderWatcher:
         self._pending = None
         self._stopped = False
         self.overflowed = False
+        self._index_path = os.path.join(self._root, '.git', 'index')
+        self._self_write_until = 0  # monotonic-us deadline for our own writes
         threading.Thread(target=self._scan, daemon=True).start()
+
+    def note_refreshed(self):
+        """Open a grace window during which index writes are treated as our own
+        `git status` stat-cache rewrite and skipped. Call right after any of our
+        refreshes that ran git status."""
+        self._self_write_until = GLib.get_monotonic_time() + self.SELF_WRITE_GRACE_US
 
     def _ignored(self, path):
         rel = os.path.relpath(path, self._root)
@@ -111,8 +129,14 @@ class FolderWatcher:
     def _on_event(self, _monitor, gfile, _other, event):
         path = gfile.get_path()
         if path and self._ignored(path):
-            # Ignored churn (e.g. git's own .git/index rewrites) — must skip the
-            # refresh too, not just the add/drop bookkeeping, or we'd spin.
+            # Ignored churn (e.g. index.lock) — must skip the refresh too, not
+            # just the add/drop bookkeeping, or we'd spin.
+            return
+        if path == self._index_path and \
+                GLib.get_monotonic_time() < self._self_write_until:
+            # Our own `git status` rewrote the index stat cache; skip to avoid a
+            # watch -> status -> rewrite loop. An external write outside the
+            # grace window falls through to schedule a refresh.
             return
         if path:
             if event == Gio.FileMonitorEvent.CREATED and os.path.isdir(path):

@@ -6,20 +6,23 @@ from gi.repository import Gtk, Gdk, GLib
 
 from vgit.gitcmd import GitError
 from vgit.ui.diff_panel import DiffPanel
-from vgit.ui.panel import add_filler_column, state_icon
+from vgit.ui.panel import add_filler_column, make_name_column, state_icon
 
 COL_ICON, COL_NAME, COL_DIR, COL_PATH, COL_STATE = range(5)
 
 
 class CommitWindow(Gtk.Window):
-    def __init__(self, parent, git, commit, short):
+    def __init__(self, parent, git, commit, short, config):
         super().__init__(title='Commit %s' % short)
         self.set_transient_for(parent)
         self.set_destroy_with_parent(True)
-        self.set_default_size(1000, 640)
         self.git = git
         self.commit = commit
+        self.config = config
+        state = dict(config.get_state('commit_window', {}))
+        self.set_default_size(state.get('width', 1000), state.get('height', 640))
         self.connect('key-press-event', self._on_key_press)
+        self.connect('delete-event', self._on_delete)
 
         # Vertical paned so the header's message area can be resized by dragging.
         root = Gtk.Paned(orientation=Gtk.Orientation.VERTICAL)
@@ -28,7 +31,8 @@ class CommitWindow(Gtk.Window):
 
         paned = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL)
         root.pack2(paned, True, False)
-        root.set_position(251)
+        root.set_position(state.get('header_pos', 251))
+        self._root_paned = root
 
         left = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         header = Gtk.Label(label='Files', xalign=0)
@@ -40,23 +44,19 @@ class CommitWindow(Gtk.Window):
 
         self.store = Gtk.ListStore(str, str, str, str, str)
         self.view = Gtk.TreeView(model=self.store)
-        name_col = Gtk.TreeViewColumn('Name')
-        icon = Gtk.CellRendererText(xalign=0.5)
-        icon.set_fixed_size(22, -1)
-        name_col.pack_start(icon, False)
-        name_col.add_attribute(icon, 'markup', COL_ICON)
-        name_renderer = Gtk.CellRendererText()
-        name_renderer.props.ellipsize = 3  # Pango.EllipsizeMode.END
-        name_col.pack_start(name_renderer, True)
-        name_col.add_attribute(name_renderer, 'text', COL_NAME)
-        name_col.set_resizable(True)
-        name_col.set_expand(True)
-        self.view.append_column(name_col)
-        state_col = Gtk.TreeViewColumn('State', Gtk.CellRendererText(),
-                                       text=COL_STATE)
-        state_col.set_resizable(True)
-        self.view.append_column(state_col)
-        add_filler_column(self.view, expand=False)
+        # Fixed widths + an expanding filler (as in the Files panel) so both
+        # columns stay resizable and their widths can be persisted.
+        self._name_col = make_name_column(COL_ICON, COL_NAME)
+        self._name_col.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        self._name_col.set_fixed_width(state.get('name_width') or 300)
+        self.view.append_column(self._name_col)
+        self._state_col = Gtk.TreeViewColumn('State', Gtk.CellRendererText(),
+                                             text=COL_STATE)
+        self._state_col.set_resizable(True)
+        self._state_col.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
+        self._state_col.set_fixed_width(state.get('state_width') or 130)
+        self.view.append_column(self._state_col)
+        add_filler_column(self.view, expand=True)
         self.view.get_selection().connect('changed', self._on_selection_changed)
         scrolled.add(self.view)
 
@@ -64,7 +64,8 @@ class CommitWindow(Gtk.Window):
 
         paned.pack1(left, False, False)
         paned.pack2(self.diff_panel, True, False)
-        paned.set_position(340)
+        paned.set_position(state.get('files_pos', 340))
+        self._files_paned = paned
 
         self._load()
         self.show_all()
@@ -99,6 +100,19 @@ class CommitWindow(Gtk.Window):
         scrolled.add(msg)
         box.pack_start(scrolled, True, True, 0)
         return box
+
+    def _on_delete(self, *_args):
+        """Persist geometry, splitter positions and column widths so the next
+        commit window opens the way the user left this one."""
+        width, height = self.get_size()
+        self.config.set_state('commit_window', {
+            'width': width, 'height': height,
+            'header_pos': self._root_paned.get_position(),
+            'files_pos': self._files_paned.get_position(),
+            'name_width': self._name_col.get_width(),
+            'state_width': self._state_col.get_width(),
+        })
+        return False
 
     def _on_key_press(self, _widget, event):
         ctrl = event.state & Gdk.ModifierType.CONTROL_MASK

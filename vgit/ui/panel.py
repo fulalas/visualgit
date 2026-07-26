@@ -42,6 +42,25 @@ def state_icon(state):
     return '<span foreground="%s" weight="bold">%s</span>' % (color, glyph)
 
 
+def make_name_column(icon_col, name_col):
+    """Build the shared 'Name' tree column used by the Files panel and the
+    per-commit changes window: a fixed-width status-glyph cell followed by an
+    ellipsized file-name cell. `icon_col` / `name_col` are the model column
+    indices for the glyph markup and the name text. Caller adds any sizing,
+    sorting or expand behaviour it needs."""
+    column = Gtk.TreeViewColumn('Name')
+    icon = Gtk.CellRendererText(xalign=0.5)
+    icon.set_fixed_size(22, -1)
+    column.pack_start(icon, False)
+    column.add_attribute(icon, 'markup', icon_col)
+    name = Gtk.CellRendererText()
+    name.props.ellipsize = 3  # Pango.EllipsizeMode.END
+    column.pack_start(name, True)
+    column.add_attribute(name, 'text', name_col)
+    column.set_resizable(True)
+    return column
+
+
 def add_filler_column(view, expand=True):
     """Append a blank trailing column. GtkTreeView never draws a resize grip on
     its final column, so without this the last data column can't be resized —

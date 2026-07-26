@@ -315,6 +315,13 @@ class MainWindow(Gtk.ApplicationWindow):
         self._sync_from_disk()
         return True
 
+    def _mark_refreshed(self):
+        """Tell the watcher the index we just left on disk is our own doing, so
+        the resulting stat-cache rewrite event isn't mistaken for an external
+        change. Call after any refresh that ran `git status`."""
+        if self._watcher is not None:
+            self._watcher.note_refreshed()
+
     def _sync_from_disk(self):
         """Reconcile the views with what's on disk: the file list with
         working-tree edits, and the journal/branches with commits made outside
@@ -358,6 +365,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 selected = self.files_panel.selected_entries()
                 if len(selected) == 1:
                     self._on_file_selected(selected[0])
+            self._mark_refreshed()
             if self._resync_pending:
                 self._resync_pending = False
                 GLib.idle_add(self._sync_from_disk)
@@ -423,6 +431,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.repos_panel.update_branch(git.path, os.path.basename(git.path),
                                            data['current'])
             self._last_rev = (data['head'], data['current'])
+            self._mark_refreshed()
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -724,6 +733,9 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.git.rm_cached(entry['path'])
         except GitError as exc:
             self.toast.show_message('Stop tracking failed: %s' % exc)
+            # Some files may have been untracked before the failure — reflect
+            # whatever actually changed rather than leaving stale rows.
+            self._refresh_files_keep_diff()
             return
         if len(entries) == 1:
             self.toast.show_message('Stopped tracking %s.' % entries[0]['path'])
@@ -781,6 +793,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._on_file_selected(entries[0])
         else:
             self.diff_panel.clear()
+        self._mark_refreshed()
 
     # ------------------------------------------------------------ branches
 
@@ -850,9 +863,14 @@ class MainWindow(Gtk.ApplicationWindow):
     def show_commit_changes(self, commit, short):
         if not self._require_repo():
             return
-        window = CommitWindow(self, self.git, commit, short)
+        window = CommitWindow(self, self.git, commit, short, self.config)
         self._commit_windows.append(window)
-        window.connect('destroy', lambda w: self._commit_windows.remove(w))
+        window.connect('destroy', self._on_commit_window_destroyed)
+
+    def _on_commit_window_destroyed(self, window):
+        # Guard against a duplicate 'destroy' (list.remove would raise).
+        if window in self._commit_windows:
+            self._commit_windows.remove(window)
 
     def checkout_commit(self, commit):
         if not self._require_repo() or self._remote_in_progress():
