@@ -12,11 +12,11 @@ from vgit.ui.panel import (Panel, popup_menu, row_at_event, add_filler_column,
 
 class FilesPanel(Panel):
     def __init__(self, on_file_selected, on_stage, on_unstage, on_open, on_reveal,
-                 on_discard, on_delete, on_ignore):
+                 on_discard, on_delete, on_untrack, on_ignore):
         """on_open / on_reveal receive one entry; on_stage / on_unstage /
-        on_discard / on_delete / on_ignore receive a list of entries.
-        on_file_selected receives one entry, or None when zero or several
-        files are selected."""
+        on_discard / on_delete / on_untrack / on_ignore receive a list of
+        entries. on_file_selected receives one entry, or None when zero or
+        several files are selected."""
         super().__init__('Files')
         self.on_file_selected = on_file_selected
         self.on_stage = on_stage
@@ -25,6 +25,7 @@ class FilesPanel(Panel):
         self.on_reveal = on_reveal
         self.on_discard = on_discard
         self.on_delete = on_delete
+        self.on_untrack = on_untrack
         self.on_ignore = on_ignore
         self._rebuilding = False
 
@@ -145,6 +146,9 @@ class FilesPanel(Panel):
         discardable = [e for e in entries if not e['untracked']]
         if discardable:
             items.append(('Discard', lambda: self.on_discard(discardable)))
+        trackable = [e for e in entries if not e['untracked']]
+        if trackable:
+            items.append(('Stop tracking', lambda: self.on_untrack(trackable)))
         items.append(('Delete', lambda: self.on_delete(entries)))
         ignorable = [e for e in entries if e['untracked']]
         if ignorable:

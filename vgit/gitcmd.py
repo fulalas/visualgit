@@ -359,6 +359,10 @@ class Git:
         # commits yet, and never touches the working tree file.
         self._run('reset', '-q', '--', path)
 
+    def rm_cached(self, path):
+        # Stop tracking the file but leave the working tree copy on disk.
+        self._run('rm', '--cached', '--', path)
+
     def add_to_gitignore(self, rel_paths):
         """Append anchored patterns for the given repo-relative paths to the
         repo's root .gitignore, skipping any already present. Returns the list

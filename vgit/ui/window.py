@@ -139,6 +139,7 @@ class MainWindow(Gtk.ApplicationWindow):
                                       on_reveal=self._reveal_file,
                                       on_discard=self._discard_files,
                                       on_delete=self._delete_files,
+                                      on_untrack=self._untrack_files,
                                       on_ignore=self._ignore_files)
         self.commit_panel = CommitPanel(on_commit=self.do_commit,
                                         get_history=self._commit_history,
@@ -682,14 +683,19 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message('Discarded changes in %d files.' % len(entries))
         self._refresh_files_keep_diff()
 
+    def _confirm_files(self, title, one, many, entries):
+        """Yes/No confirmation for a file action. `one` is a format string
+        taking the single path; `many` takes the file count."""
+        text = one % entries[0]['path'] if len(entries) == 1 else many % len(entries)
+        return dialogs.confirm_dialog(self, title, text)
+
     def _delete_files(self, entries):
         if not self._require_repo() or self._remote_in_progress():
             return
-        if len(entries) == 1:
-            text = '"%s" will be permanently deleted from disk.' % entries[0]['path']
-        else:
-            text = '%d files will be permanently deleted from disk.' % len(entries)
-        if not dialogs.confirm_dialog(self, 'Delete?', text):
+        if not self._confirm_files(
+                'Delete?',
+                '"%s" will be permanently deleted from disk.',
+                '%d files will be permanently deleted from disk.', entries):
             return
         errors = 0
         for entry in entries:
@@ -704,14 +710,34 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message('Deleted %d file(s).' % len(entries))
         self._refresh_files_keep_diff()
 
+    def _untrack_files(self, entries):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        if not self._confirm_files(
+                'Stop tracking?',
+                '"%s" will stop being tracked by git but kept on disk.',
+                '%d files will stop being tracked by git but kept on disk.',
+                entries):
+            return
+        try:
+            for entry in entries:
+                self.git.rm_cached(entry['path'])
+        except GitError as exc:
+            self.toast.show_message('Stop tracking failed: %s' % exc)
+            return
+        if len(entries) == 1:
+            self.toast.show_message('Stopped tracking %s.' % entries[0]['path'])
+        else:
+            self.toast.show_message('Stopped tracking %d files.' % len(entries))
+        self._refresh_files_keep_diff()
+
     def _ignore_files(self, entries):
         if not self._require_repo() or self._remote_in_progress():
             return
-        if len(entries) == 1:
-            text = '"%s" will be added to .gitignore.' % entries[0]['path']
-        else:
-            text = '%d files will be added to .gitignore.' % len(entries)
-        if not dialogs.confirm_dialog(self, 'Add to .gitignore?', text):
+        if not self._confirm_files(
+                'Add to .gitignore?',
+                '"%s" will be added to .gitignore.',
+                '%d files will be added to .gitignore.', entries):
             return
         try:
             added = self.git.add_to_gitignore([e['path'] for e in entries])
