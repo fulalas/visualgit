@@ -148,10 +148,10 @@ class FilesPanel(Panel):
             items.append(('Discard', lambda: self.on_discard(discardable)))
         trackable = [e for e in entries if not e['untracked']]
         if trackable:
-            items.append(('Stop tracking', lambda: self.on_untrack(trackable)))
-        items.append(('Delete', lambda: self.on_delete(entries)))
+            items.append(('Stop tracking...', lambda: self.on_untrack(trackable)))
+        items.append(('Delete...', lambda: self.on_delete(entries)))
         ignorable = [e for e in entries if e['untracked']]
         if ignorable:
-            items.append(('Add to .gitignore', lambda: self.on_ignore(ignorable)))
+            items.append(('Add to .gitignore...', lambda: self.on_ignore(ignorable)))
         popup_menu(view, event, items)
         return True
