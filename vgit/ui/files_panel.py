@@ -60,6 +60,7 @@ class FilesPanel(Panel):
         self.view.get_selection().connect('changed', self._on_selection_changed)
         self.view.connect('row-activated', self._on_row_activated)
         self.view.connect('button-press-event', self._on_button_press)
+        self.view.connect('key-press-event', self._on_key_press)
         self.scrolled.add(self.view)
 
     def get_column_widths(self):
@@ -104,6 +105,16 @@ class FilesPanel(Panel):
 
     def _on_row_activated(self, view, path, column):
         self.on_open(self._entry(self.store[path]))
+
+    def _on_key_press(self, _view, event):
+        # Delete key mirrors the context-menu 'Delete' action.
+        if event.keyval != Gdk.KEY_Delete:
+            return False
+        entries = self.selected_entries()
+        if not entries:
+            return False
+        self.on_delete(entries)
+        return True
 
     def _on_button_press(self, view, event):
         if event.type != Gdk.EventType.BUTTON_PRESS:

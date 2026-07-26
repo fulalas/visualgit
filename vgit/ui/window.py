@@ -467,6 +467,12 @@ class MainWindow(Gtk.ApplicationWindow):
         self.repos_panel.select(path)
 
     def remove_repository(self, path):
+        repo = self.config.get_repo(path) or {}
+        text = ("Repository '%s' will be unregistered from VisualGit, along "
+                "with its saved credentials. The files on disk are kept."
+                % (repo.get('name') or path))
+        if not dialogs.confirm_dialog(self, 'Remove repository?', text):
+            return
         self.config.remove_repo(path)
         self._drafts.pop(path, None)
         self.config.set_state('drafts', self._drafts, save=False)

@@ -14,6 +14,13 @@ Requires: Python 3, PyGObject (GTK 3), git.
 If `git` is not on your `PATH`, VisualGit asks for the folder containing the
 git program on startup and remembers it (saved as `git_binary` in the config).
 
+## Build (single binary)
+
+`./build.sh` produces a single-file `./visualgit` (Linux x86_64) via
+PyInstaller (build artifacts live in `build/`, safe to delete). CPython, the
+GTK libraries and all of the app's own icons are bundled — the binary never
+relies on a system icon theme. Runtime needs only `git` on `PATH`.
+
 ## Layout
 
 - **Repositories** (top left) — registered repos; the active one is shown in
@@ -22,21 +29,24 @@ git program on startup and remembers it (saved as `git_binary` in the config).
 - **Branches** (bottom left) — *Local Branches* plus one group per remote
   (e.g. *origin*). Each local branch shows an orange `(N)` with the number of
   committed-but-unpushed commits. Right-click any non-current branch for
-  *Checkout* / *Merge from*; double-click also checks out. Checking out a
-  remote branch creates a local tracking branch if one doesn't exist yet.
+  *Checkout* / *Merge from* / *Delete*; double-click also checks out. Checking
+  out a remote branch creates a local tracking branch if one doesn't exist yet.
 - **Files** (top center) — working tree / index status, with a colored state
   icon per file and untracked files listed individually. Auto-refreshes when
   the folder changes on disk. Multiple files can be selected; double-click
   opens a file in its default application, and clicking empty space clears the
   selection. Right-click for *Open file* / *Reveal in file manager* (single
-  file only), *Stage* / *Unstage*, *Discard*, *Delete*, and (for untracked
-  files) *Add to .gitignore*.
+  file only), *Stage* / *Unstage*, *Discard*, *Delete*, *Stop tracking*
+  (`git rm --cached`, keeps the file on disk), and (for untracked files)
+  *Add to .gitignore*.
 - **Commit** (top right) — commit message field and Commit button.
 - **Changes** (middle) — unified diff of the selected file.
-- **Journal** (bottom) — commit log across all branches, with the current
-  commit (HEAD) shown in bold. Right-click a commit for *Copy commit hash*,
-  *Edit message and author…* (HEAD is amended, older commits are reworded via
-  rebase — hashes change), and *Checkout this commit* (detached HEAD).
+- **Journal** (bottom) — commit log across all branches (Hash / Refs /
+  Subject / Author / Date columns), with the current commit (HEAD) shown in
+  bold. Double-click a commit to open a window with its changed files and
+  diffs. Right-click for *Copy commit hash*, *Edit message and author…* (HEAD
+  is amended, older commits are reworded via rebase — hashes change), and
+  *Checkout this commit* (detached HEAD).
 
 ## Toolbar
 
@@ -47,9 +57,11 @@ git program on startup and remembers it (saved as `git_binary` in the config).
 ## Shortcuts (app-wide)
 
 - **Ctrl+Enter** — commit.
-- **Alt+PageUp** — push.
+- **Alt+PageUp** — commit staged changes (if any), then push.
+- **Alt+PageDown** — pull.
 - **Ctrl+Up / Ctrl+Down** — walk back/forward through previous commit
   messages.
+- **Ctrl+Q** — quit.
 
 Commits are only possible when something is staged.
 

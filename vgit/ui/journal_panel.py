@@ -76,7 +76,9 @@ class JournalPanel(Panel):
         if itr is None:
             return True
         commit = self.store[itr][COL_HASH]
+        short = self.store[itr][COL_SHORT]
         popup_menu(view, event, [
+            ('Show details...', lambda: self.on_show_changes(commit, short)),
             ('Copy commit hash', lambda: self.on_copy_hash(commit)),
             ('Edit message and author…', lambda: self.on_edit_commit(commit)),
             ('Checkout this commit', lambda: self.on_checkout(commit)),

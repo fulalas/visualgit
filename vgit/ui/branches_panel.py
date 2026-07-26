@@ -30,6 +30,7 @@ class BranchesPanel(Panel):
         self.view.append_column(column)
         self.view.connect('button-press-event', self._on_button_press)
         self.view.connect('row-activated', self._on_row_activated)
+        self.view.connect('key-press-event', self._on_key_press)
         self.scrolled.add(self.view)
 
     def set_branches(self, names, current, remote_names=(), ahead=None):
@@ -80,6 +81,20 @@ class BranchesPanel(Panel):
         if kind in ('local', 'remote') and not is_current:
             self.on_checkout(name, kind)
 
+    def _on_key_press(self, view, event):
+        # Delete key mirrors the context-menu 'Delete' action; ignored on
+        # header rows and the current branch, which have no delete.
+        if event.keyval != Gdk.KEY_Delete:
+            return False
+        model, itr = view.get_selection().get_selected()
+        if itr is None:
+            return False
+        name, kind, is_current = self._row_info(itr)
+        if kind not in ('local', 'remote') or is_current:
+            return False
+        self.on_delete(name, kind)
+        return True
+
     def _on_button_press(self, view, event):
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 3:
             return False
@@ -92,6 +107,6 @@ class BranchesPanel(Panel):
         popup_menu(view, event, [
             ('Checkout', lambda: self.on_checkout(name, kind)),
             ('Merge from', lambda: self.on_merge_from(name)),
-            ('Delete', lambda: self.on_delete(name, kind)),
+            ('Delete...', lambda: self.on_delete(name, kind)),
         ])
         return True

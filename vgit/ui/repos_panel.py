@@ -28,6 +28,7 @@ class ReposPanel(Panel):
         self.view.set_tooltip_column(COL_PATH)
         self.view.get_selection().connect('changed', self._on_selection_changed)
         self.view.connect('button-press-event', self._on_button_press)
+        self.view.connect('key-press-event', self._on_key_press)
         self.scrolled.add(self.view)
 
     def _markup(self, name, branch, active):
@@ -86,6 +87,16 @@ class ReposPanel(Panel):
         if itr:
             self.on_selected(model[itr][COL_PATH])
 
+    def _on_key_press(self, _view, event):
+        # Delete key mirrors the context-menu 'Remove repository' action.
+        if event.keyval != Gdk.KEY_Delete:
+            return False
+        path = self.selected_path()
+        if path is None:
+            return False
+        self.on_remove(path)
+        return True
+
     def _on_button_press(self, view, event):
         if event.type != Gdk.EventType.BUTTON_PRESS or event.button != 3:
             return False
@@ -97,6 +108,6 @@ class ReposPanel(Panel):
             ('Set remote…', lambda: self.on_set_remote(path)),
             ('Set credentials…', lambda: self.on_set_credentials(path)),
             ('Set identity…', lambda: self.on_set_identity(path)),
-            ('Remove repository', lambda: self.on_remove(path)),
+            ('Remove repository...', lambda: self.on_remove(path)),
         ])
         return True
