@@ -707,6 +707,12 @@ class MainWindow(Gtk.ApplicationWindow):
     def _ignore_files(self, entries):
         if not self._require_repo() or self._remote_in_progress():
             return
+        if len(entries) == 1:
+            text = '"%s" will be added to .gitignore.' % entries[0]['path']
+        else:
+            text = '%d files will be added to .gitignore.' % len(entries)
+        if not dialogs.confirm_dialog(self, 'Add to .gitignore?', text):
+            return
         try:
             added = self.git.add_to_gitignore([e['path'] for e in entries])
         except OSError as exc:
