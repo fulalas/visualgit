@@ -28,6 +28,13 @@ class DiffPanel(Panel):
         self.buffer.set_text('')
 
     def set_diff(self, text):
+        # No-op when unchanged: a status-identical refresh would otherwise clear
+        # and rebuild the buffer, flashing the panel for no visible reason. Cheap
+        # char-count guard first, so an actual change skips the full buffer copy.
+        if self.buffer.get_char_count() == len(text):
+            start, end = self.buffer.get_bounds()
+            if self.buffer.get_text(start, end, True) == text:
+                return
         self.clear()
         end = self.buffer.get_end_iter()
         for line in text.splitlines(keepends=True):

@@ -16,10 +16,18 @@ from gi.repository import Gio, GLib
 class FolderWatcher:
     MAX_WATCHES = 4000          # bound inotify usage on huge trees
     DEBOUNCE_MS = 400           # collapse bursts of events into one refresh
-    # .git internals that churn constantly but need no UI refresh; the parts
-    # that matter (HEAD, index, refs, logs) live directly under .git.
+    # .git internal *directories* that churn constantly but need no UI refresh;
+    # the parts that matter (HEAD, refs, logs) live directly under .git.
     IGNORE_PREFIXES = (os.path.join('.git', 'objects'),
                        os.path.join('.git', 'lfs'))
+    # .git internal *files* to ignore, matched exactly. The index is the key
+    # one: `git status` — which our own refresh runs — rewrites .git/index to
+    # update its stat cache, so reacting to that would spin an endless
+    # watch -> status -> rewrite -> watch loop. Real staging still surfaces via
+    # the working-tree file events that accompany it. Exact names (not a prefix)
+    # so unrelated paths like .git/index-pack-* aren't swept up.
+    IGNORE_FILES = frozenset({os.path.join('.git', 'index'),
+                              os.path.join('.git', 'index.lock')})
     # Ephemeral directories (matched by name, at any depth) that would blow the
     # watch budget and are virtually always git-ignored anyway.
     IGNORE_NAMES = frozenset({'node_modules', '__pycache__', '.venv', 'venv',
@@ -41,7 +49,7 @@ class FolderWatcher:
         rel = os.path.relpath(path, self._root)
         if rel == os.curdir:
             return False
-        if rel.startswith(self.IGNORE_PREFIXES):
+        if rel.startswith(self.IGNORE_PREFIXES) or rel in self.IGNORE_FILES:
             return True
         return any(part in self.IGNORE_NAMES for part in rel.split(os.sep))
 
@@ -102,7 +110,11 @@ class FolderWatcher:
 
     def _on_event(self, _monitor, gfile, _other, event):
         path = gfile.get_path()
-        if path and not self._ignored(path):
+        if path and self._ignored(path):
+            # Ignored churn (e.g. git's own .git/index rewrites) — must skip the
+            # refresh too, not just the add/drop bookkeeping, or we'd spin.
+            return
+        if path:
             if event == Gio.FileMonitorEvent.CREATED and os.path.isdir(path):
                 self._add_subtree(path)
             elif event == Gio.FileMonitorEvent.DELETED and path in self._monitors:

@@ -5,7 +5,8 @@ from gi.repository import Gtk, Gdk
 
 from vgit.ui.panel import Panel, popup_menu, row_at_event, add_filler_column
 
-COL_HASH, COL_SHORT, COL_REFS, COL_SUBJECT, COL_DATE, COL_WEIGHT = range(6)
+COL_HASH, COL_SHORT, COL_REFS, COL_SUBJECT, COL_AUTHOR, COL_DATE, COL_WEIGHT = \
+    range(7)
 
 WEIGHT_NORMAL, WEIGHT_BOLD = 400, 700
 
@@ -18,15 +19,16 @@ class JournalPanel(Panel):
         self.on_checkout = on_checkout
         self.on_show_changes = on_show_changes
 
-        self.store = Gtk.ListStore(str, str, str, str, str, int)
+        self.store = Gtk.ListStore(str, str, str, str, str, str, int)
         self.view = Gtk.TreeView(model=self.store)
         self._columns = {}
         for title, col, key, width in (('Hash', COL_SHORT, 'hash', 90),
                                        ('Refs', COL_REFS, 'refs', 120),
                                        ('Subject', COL_SUBJECT, None, 0),
+                                       ('Author', COL_AUTHOR, 'author', 140),
                                        ('Date', COL_DATE, 'date', 140)):
             renderer = Gtk.CellRendererText()
-            if col == COL_SUBJECT:
+            if col in (COL_SUBJECT, COL_AUTHOR):
                 renderer.props.ellipsize = 3  # Pango.EllipsizeMode.END
             column = Gtk.TreeViewColumn(title, renderer, text=col,
                                         weight=COL_WEIGHT)
@@ -61,7 +63,7 @@ class JournalPanel(Panel):
         for c in commits:
             weight = WEIGHT_BOLD if c['hash'] == head else WEIGHT_NORMAL
             self.store.append([c['hash'], c['short'], c['refs'],
-                               c['subject'], c['date'], weight])
+                               c['subject'], c['author'], c['date'], weight])
 
     def _on_row_activated(self, view, path, _column):
         row = self.store[path]
