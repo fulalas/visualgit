@@ -128,6 +128,7 @@ class MainWindow(Gtk.ApplicationWindow):
                                       on_set_credentials=self.set_credentials,
                                       on_set_identity=self.set_identity,
                                       on_set_remote=self.set_remote,
+                                      on_edit_path=self.edit_repository_path,
                                       on_remove=self.remove_repository)
         self.branches_panel = BranchesPanel(on_merge_from=self.merge_from,
                                             on_checkout=self.checkout_branch,
@@ -465,6 +466,38 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         self._reload_repo_list()
         self.repos_panel.select(path)
+
+    def edit_repository_path(self, path):
+        """Point a registered repo at another folder (e.g. after moving it)."""
+        new_path = dialogs.input_dialog(
+            self, 'Edit path — %s' % os.path.basename(path), 'Local path:',
+            text=path,
+            note='Where this repository lives on disk. Change it after moving '
+                 'the folder; nothing is moved or copied here.')
+        if not new_path:
+            return
+        new_path = os.path.abspath(os.path.expanduser(new_path))
+        if new_path == path:
+            return
+        if not Git.is_repo(new_path):
+            self.toast.show_message('"%s" is not a git repository.' % new_path)
+            return
+        if self.config.get_repo(new_path):
+            self.toast.show_message('Repository is already in the list.')
+            return
+        was_selected = self.git is not None and self.git.path == path
+        if was_selected:
+            self._save_current_draft()
+            self._stop_watching()
+            self.git = None
+        self.config.set_repo_path(path, new_path)
+        if path in self._drafts:
+            self._drafts[new_path] = self._drafts.pop(path)
+        self.config.set_state('drafts', self._drafts)
+        self._reload_repo_list()
+        if was_selected:
+            self.repos_panel.select(new_path)
+        self.toast.show_message('Path changed to %s' % new_path)
 
     def remove_repository(self, path):
         repo = self.config.get_repo(path) or {}

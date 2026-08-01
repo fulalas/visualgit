@@ -53,6 +53,15 @@ class Config:
         self.save()
         return True
 
+    def set_repo_path(self, path, new_path):
+        """Point an existing entry at another folder (e.g. after moving it)."""
+        repo = self.get_repo(path)
+        if repo is None or self.get_repo(new_path):
+            return False
+        repo['path'] = new_path
+        self.save()
+        return True
+
     def remove_repo(self, path):
         self.data['repos'] = [r for r in self.data['repos'] if r['path'] != path]
         self.save()

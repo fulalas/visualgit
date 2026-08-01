@@ -10,12 +10,13 @@ COL_MARKUP, COL_PATH, COL_NAME, COL_BRANCH = range(4)
 
 class ReposPanel(Panel):
     def __init__(self, on_selected, on_set_credentials, on_set_identity,
-                 on_set_remote, on_remove):
+                 on_set_remote, on_edit_path, on_remove):
         super().__init__('Repositories')
         self.on_selected = on_selected
         self.on_set_credentials = on_set_credentials
         self.on_set_identity = on_set_identity
         self.on_set_remote = on_set_remote
+        self.on_edit_path = on_edit_path
         self.on_remove = on_remove
         self._rebuilding = False
         self._active = None
@@ -88,7 +89,7 @@ class ReposPanel(Panel):
             self.on_selected(model[itr][COL_PATH])
 
     def _on_key_press(self, _view, event):
-        # Delete key mirrors the context-menu 'Remove repository' action.
+        # Delete key mirrors the context-menu 'Remove' action.
         if event.keyval != Gdk.KEY_Delete:
             return False
         path = self.selected_path()
@@ -108,6 +109,7 @@ class ReposPanel(Panel):
             ('Set remote…', lambda: self.on_set_remote(path)),
             ('Set credentials…', lambda: self.on_set_credentials(path)),
             ('Set identity…', lambda: self.on_set_identity(path)),
-            ('Remove repository...', lambda: self.on_remove(path)),
+            ('Edit path…', lambda: self.on_edit_path(path)),
+            ('Remove...', lambda: self.on_remove(path)),
         ])
         return True

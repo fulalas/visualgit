@@ -26,8 +26,9 @@ relies on a system icon theme. Runtime needs only `git` on `PATH`.
 ## Layout
 
 - **Repositories** (top left) — registered repos; the active one is shown in
-  bold with a ▸ marker. Right-click for *Set credentials…*, *Set identity…*,
-  and *Remove repository*.
+  bold with a ▸ marker. Right-click for *Set remote…*, *Set credentials…*,
+  *Set identity…*, *Edit path…* (point an entry at a moved folder) and
+  *Remove*.
 - **Branches** (bottom left) — *Local Branches* plus one group per remote
   (e.g. *origin*). Each local branch shows an orange `(N)` with the number of
   committed-but-unpushed commits. Right-click any non-current branch for
