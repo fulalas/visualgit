@@ -470,7 +470,8 @@ class MainWindow(Gtk.ApplicationWindow):
     def edit_repository_path(self, path):
         """Point a registered repo at another folder (e.g. after moving it)."""
         new_path = dialogs.input_dialog(
-            self, 'Edit path — %s' % os.path.basename(path), 'Local path:',
+            self, dialogs.repo_title(os.path.basename(path), 'Path'),
+            'Local path:',
             text=path,
             note='Where this repository lives on disk. Change it after moving '
                  'the folder; nothing is moved or copied here.')
@@ -530,7 +531,7 @@ class MainWindow(Gtk.ApplicationWindow):
         except GitError:
             current = ''
         url = dialogs.input_dialog(
-            self, 'Set remote — %s' % os.path.basename(path),
+            self, dialogs.repo_title(os.path.basename(path), 'Remote'),
             'Server URL:', text=current,
             note=note or 'The repository URL, saved as remote "%s" and used '
                          'for pushing and pulling.' % name)

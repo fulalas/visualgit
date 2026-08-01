@@ -9,7 +9,33 @@ from gi.repository import Gtk, GdkPixbuf, GLib
 from vgit.resources import resource_path
 
 LOGO_PATH = resource_path('vgit', 'ui', 'icons', 'logo.svg')
-SET_DIALOG_WIDTH = 593  # width of the 'Set …' repo-context modals
+DIALOG_WIDTH = 593  # shared width of the repository modals
+
+
+def repo_title(repo_name, action):
+    """Title bar text of a repository modal: '[RepoName] [Action]'. Only the
+    first letter of the name is forced up — the rest is left as on disk."""
+    return '%s%s %s' % (repo_name[:1].upper(), repo_name[1:], action)
+
+
+def _fix_width(dialog):
+    """Pin a modal to the shared width. A default size alone is not enough:
+    a dialog never shrinks below the width its content asks for, so the size
+    request (a floor) is paired with wrapping labels (which keep the content
+    from asking for more)."""
+    dialog.set_resizable(True)  # message dialogs are not resizable by default,
+                                # and a fixed dialog ignores the size below
+    dialog.set_default_size(DIALOG_WIDTH, -1)
+    dialog.set_size_request(DIALOG_WIDTH, -1)
+
+
+def _wrap_message(dialog):
+    """Make the labels of a message dialog wrap inside the shared width
+    instead of stretching it to fit the longest line."""
+    for child in dialog.get_message_area().get_children():
+        if isinstance(child, Gtk.Label):
+            child.set_line_wrap(True)
+            child.set_max_width_chars(40)
 
 
 def _append_note(box, text):
@@ -55,7 +81,7 @@ def input_dialog(parent, title, label, text='', note=None):
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
     dialog.set_default_response(Gtk.ResponseType.OK)
-    dialog.set_default_size(SET_DIALOG_WIDTH, -1)
+    _fix_width(dialog)
     entry = Gtk.Entry(text=text, activates_default=True)
     box = dialog.get_content_area()
     box.pack_start(_labeled_grid([(label, entry)]), True, True, 0)
@@ -108,12 +134,12 @@ def credentials_dialog(parent, repo_name, username='', has_password=False,
                        note=None):
     """Ask for user/password for one repository. Returns (user, password) or
     None. `note` is an optional explanation shown at the bottom."""
-    dialog = Gtk.Dialog(title='Credentials — %s' % repo_name, parent=parent,
-                        modal=True)
+    dialog = Gtk.Dialog(title=repo_title(repo_name, 'Credentials'),
+                        parent=parent, modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
     dialog.set_default_response(Gtk.ResponseType.OK)
-    dialog.set_default_size(SET_DIALOG_WIDTH, -1)
+    _fix_width(dialog)
 
     user_entry = Gtk.Entry(text=username, activates_default=True)
     pass_entry = Gtk.Entry(visibility=False, activates_default=True)
@@ -139,12 +165,12 @@ def identity_dialog(parent, repo_name, name='', email='', note=None):
     """Ask for the commit identity of one repository (user.name / user.email).
     Returns (name, email) or None. `note` is an optional explanation shown
     at the bottom."""
-    dialog = Gtk.Dialog(title='Identity — %s' % repo_name, parent=parent,
-                        modal=True)
+    dialog = Gtk.Dialog(title=repo_title(repo_name, 'Identity'),
+                        parent=parent, modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
     dialog.set_default_response(Gtk.ResponseType.OK)
-    dialog.set_default_size(SET_DIALOG_WIDTH, -1)
+    _fix_width(dialog)
 
     name_entry = Gtk.Entry(text=name, activates_default=True)
     email_entry = Gtk.Entry(text=email, activates_default=True)
@@ -169,6 +195,8 @@ def confirm_dialog(parent, title, text):
                                buttons=Gtk.ButtonsType.YES_NO,
                                text=title)
     dialog.format_secondary_text(text)
+    _wrap_message(dialog)
+    _fix_width(dialog)
     response = dialog.run()
     dialog.destroy()
     return response == Gtk.ResponseType.YES
