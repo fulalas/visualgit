@@ -38,7 +38,10 @@ class ReposPanel(Panel):
             name_markup = '<b>▸ %s</b>' % name_markup
         else:
             name_markup = '   %s' % name_markup
-        return '%s <span size="small" alpha="55%%">(%s)</span>' % (
+        # Dim the branch with a plain colour, NEVER with alpha="..": a Pango
+        # alpha attribute leaks out of the cell and dims the next text drawn
+        # in the same frame (the commit message turns gray).
+        return '%s <span size="small" foreground="#9e9e9e">(%s)</span>' % (
             name_markup, GLib.markup_escape_text(branch))
 
     def _render_row(self, row):
