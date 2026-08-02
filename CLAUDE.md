@@ -32,6 +32,6 @@ shell out to the system `git` CLI. Run with `python3 main.py`.
 - Every user-changeable thing (selected repo, drafts, geometry, splitter
   positions, column widths) persists via `Config.get_state`/`set_state` —
   keep new UI state in there too.
-- GTK 4 is NOT available on this machine; stay on GTK 3.
+- Stay on GTK 3.
 - Test non-UI logic against a scratch repo in /tmp; compile-check with
   `python3 -m py_compile`.
