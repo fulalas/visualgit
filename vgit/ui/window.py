@@ -698,7 +698,14 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message('Could not open file: %s' % exc)
 
     def _reveal_file(self, entry):
+        """entry is None when revealing the repository folder itself."""
         if not self._require_repo():
+            return
+        if entry is None:
+            try:
+                subprocess.Popen(['xdg-open', self.git.path])
+            except OSError as exc:
+                self.toast.show_message('Could not open file manager: %s' % exc)
             return
         path = self._abs_path(entry)
         try:

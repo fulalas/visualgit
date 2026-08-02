@@ -39,9 +39,10 @@ relies on a system icon theme. Runtime needs only `git` on `PATH`.
   the folder changes on disk. Multiple files can be selected; double-click
   opens a file in its default application, and clicking empty space clears the
   selection. Right-click for *Open file* / *Reveal in file manager* (single
-  file only), *Stage* / *Unstage*, *Discard*, *Delete*, *Stop tracking*
+  file only), *Stage* / *Unstage*, *Discard*, *Delete file*, *Stop tracking*
   (`git rm --cached`, keeps the file on disk), and (for untracked files)
-  *Add to .gitignore*.
+  *Add to .gitignore*. Right-click on empty space offers *Reveal in file
+  manager* for the repository folder.
 - **Commit** (top right) — commit message field and Commit button.
 - **Changes** (middle) — unified diff of the selected file.
 - **Journal** (bottom) — commit log across all branches (Hash / Refs /

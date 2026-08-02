@@ -13,7 +13,8 @@ from vgit.ui.panel import (Panel, popup_menu, row_at_event, add_filler_column,
 class FilesPanel(Panel):
     def __init__(self, on_file_selected, on_stage, on_unstage, on_open, on_reveal,
                  on_discard, on_delete, on_untrack, on_ignore):
-        """on_open / on_reveal receive one entry; on_stage / on_unstage /
+        """on_open receives one entry; on_reveal receives one entry, or None to
+        reveal the repository folder; on_stage / on_unstage /
         on_discard / on_delete / on_untrack / on_ignore receive a list of
         entries. on_file_selected receives one entry, or None when zero or
         several files are selected."""
@@ -127,6 +128,10 @@ class FilesPanel(Panel):
         if event.button != 3:
             return False
         if row_at_event(view, event) is None:
+            # Empty space: only the repository folder can be acted on.
+            view.get_selection().unselect_all()
+            popup_menu(view, event,
+                       [('Reveal in file manager', lambda: self.on_reveal(None))])
             return True
         entries = self.selected_entries()
         if not entries:
@@ -151,7 +156,7 @@ class FilesPanel(Panel):
         trackable = [e for e in entries if not e['untracked']]
         if trackable:
             items.append(('Stop tracking...', lambda: self.on_untrack(trackable)))
-        items.append(('Delete...', lambda: self.on_delete(entries)))
+        items.append(('Delete file...', lambda: self.on_delete(entries)))
         ignorable = [e for e in entries if e['untracked']]
         if ignorable:
             items.append(('Add to .gitignore...', lambda: self.on_ignore(ignorable)))
