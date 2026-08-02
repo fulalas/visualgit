@@ -4,6 +4,26 @@ gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk
 
 
+def add_external_hscrollbar(box, scrolled):
+    """Put the horizontal scrollbar in `box`, right under `scrolled`, instead
+    of inside the scroller. GTK draws its own one on top of the content, which
+    hides the bottom row of a list; a bar packed in the box takes its own space
+    and cannot cover anything. It shows only when the content is too wide."""
+    scrolled.set_policy(Gtk.PolicyType.EXTERNAL, Gtk.PolicyType.AUTOMATIC)
+    adjustment = scrolled.get_hadjustment()
+    bar = Gtk.Scrollbar(orientation=Gtk.Orientation.HORIZONTAL,
+                        adjustment=adjustment)
+    bar.set_no_show_all(True)  # visibility is ours, not show_all()'s
+    box.pack_start(bar, False, False, 0)
+
+    def sync(adj):
+        bar.set_visible(adj.get_upper() - adj.get_page_size() > 1)
+
+    adjustment.connect('changed', sync)
+    sync(adjustment)
+    return bar
+
+
 class Panel(Gtk.Box):
     """A titled panel with a scrollable content area."""
 
@@ -15,6 +35,7 @@ class Panel(Gtk.Box):
         self.scrolled = Gtk.ScrolledWindow()
         self.scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         self.pack_start(self.scrolled, True, True, 0)
+        add_external_hscrollbar(self, self.scrolled)
 
 
 # state label -> (glyph, color); distinct glyphs keep the states readable

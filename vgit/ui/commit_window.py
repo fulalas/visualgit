@@ -6,7 +6,8 @@ from gi.repository import Gtk, Gdk, GLib
 
 from vgit.gitcmd import GitError
 from vgit.ui.diff_panel import DiffPanel
-from vgit.ui.panel import add_filler_column, make_name_column, state_icon
+from vgit.ui.panel import (add_external_hscrollbar, add_filler_column,
+                           make_name_column, state_icon)
 
 COL_ICON, COL_NAME, COL_DIR, COL_PATH, COL_STATE = range(5)
 
@@ -41,6 +42,7 @@ class CommitWindow(Gtk.Window):
         scrolled = Gtk.ScrolledWindow()
         scrolled.set_policy(Gtk.PolicyType.AUTOMATIC, Gtk.PolicyType.AUTOMATIC)
         left.pack_start(scrolled, True, True, 0)
+        add_external_hscrollbar(left, scrolled)
 
         self.store = Gtk.ListStore(str, str, str, str, str)
         self.view = Gtk.TreeView(model=self.store)
