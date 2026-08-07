@@ -73,20 +73,55 @@ class FilesPanel(Panel):
             if widths.get(key, 0) > 0:
                 column.set_fixed_width(widths[key])
 
-    def set_files(self, entries):
+    def clear_selection(self):
+        """Drop the selection without loading a diff. Used when switching repos,
+        where keeping the old repo's rows selected makes no sense."""
         self._rebuilding = True
-        selected = {e['path'] for e in self.selected_entries()}
-        self.store.clear()
-        for e in entries:
-            self.store.append([e['name'], e['state'], e['dir'], e['path'],
-                               e['staged'], e['unstaged'], e['untracked'],
-                               state_icon(e['state'])])
-        # Keep _rebuilding set while re-selecting: each select_iter would
-        # otherwise fire selection-changed and load a diff per restored row.
+        self.view.get_selection().unselect_all()
+        self._rebuilding = False
+
+    def set_files(self, entries):
+        """Bring the list up to date by touching only what changed: a staged
+        file just gets a new icon and state text. Emptying and refilling the
+        store would make the whole list blink and reset the scroll position.
+        _rebuilding stays set throughout, so the selection changes GTK makes
+        while rows come and go don't each load a diff — callers refresh the
+        diff once the list is settled."""
+        self._rebuilding = True
         selection = self.view.get_selection()
-        for row in self.store:
-            if row[COL_PATH] in selected:
-                selection.select_iter(row.iter)
+        _model, selected = selection.get_selected_rows()
+        first_row = selected[0].get_indices()[0] if selected else 0
+
+        wanted = {e['path'] for e in entries}
+        row_iter = self.store.get_iter_first()
+        while row_iter is not None:
+            if self.store[row_iter][COL_PATH] in wanted:
+                row_iter = self.store.iter_next(row_iter)
+            elif not self.store.remove(row_iter):  # removed the last row
+                row_iter = None
+
+        # With a sort column active the store decides where a row goes, so new
+        # ones are simply appended; unsorted, they take their `git status` spot
+        # (the rows that survived are still in that order).
+        sort_column = self.store.get_sort_column_id()[1]  # None while unsorted
+        by_column = sort_column is not None and sort_column >= 0
+        rows = {row[COL_PATH]: row for row in self.store}
+        for index, e in enumerate(entries):
+            values = [e['name'], e['state'], e['dir'], e['path'], e['staged'],
+                      e['unstaged'], e['untracked'], state_icon(e['state'])]
+            row = rows.get(e['path'])
+            if row is None:
+                self.store.insert(len(self.store) if by_column else index, values)
+                continue
+            for col, value in enumerate(values):
+                if row[col] != value:
+                    row[col] = value
+
+        if selected and not selection.count_selected_rows() and len(self.store):
+            # Every selected file left the list (staged, committed, discarded):
+            # select whatever took its place instead of losing the position.
+            index = min(first_row, len(self.store) - 1)
+            selection.select_path(Gtk.TreePath.new_from_indices([index]))
         self._rebuilding = False
 
     @staticmethod

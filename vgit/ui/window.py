@@ -428,7 +428,13 @@ class MainWindow(Gtk.ApplicationWindow):
                                              data['remotes'], data['ahead'])
             self._apply_status(data['status'])
             self.journal_panel.set_commits(data['log'], data['head'])
-            self.diff_panel.clear()
+            # Show the diff of whatever the file list kept selected (after a
+            # commit that is the row which replaced the committed file).
+            selected = self.files_panel.selected_entries()
+            if len(selected) == 1:
+                self._on_file_selected(selected[0])
+            else:
+                self.diff_panel.clear()
             self.repos_panel.update_branch(git.path, os.path.basename(git.path),
                                            data['current'])
             self._last_rev = (data['head'], data['current'])
@@ -443,6 +449,7 @@ class MainWindow(Gtk.ApplicationWindow):
                        cred_provider=lambda p=path: self.config.credentials(p))
         self.repos_panel.set_active(path)
         self.commit_panel.set_message(self._drafts.get(path, ''))
+        self.files_panel.clear_selection()  # rows belong to the old repo
         self._last_rev = None
         self.refresh_repo_views()
         self._watch_repo(path)
