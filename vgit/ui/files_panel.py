@@ -1,4 +1,6 @@
 """Top-center panel: working tree / index status table (multi-select)."""
+from collections import Counter
+
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
@@ -6,20 +8,19 @@ from gi.repository import Gtk, Gdk
 from vgit.ui.panel import (Panel, popup_menu, row_at_event, add_filler_column,
                            make_name_column, state_icon)
 
-(COL_NAME, COL_STATE, COL_DIR, COL_PATH, COL_STAGED, COL_UNSTAGED,
- COL_UNTRACKED, COL_ICON) = range(8)
+(COL_NAME, COL_STATE, COL_TYPE, COL_DIR, COL_PATH, COL_STAGED, COL_UNSTAGED,
+ COL_UNTRACKED, COL_ICON) = range(9)
 
 
 class FilesPanel(Panel):
-    def __init__(self, on_file_selected, on_stage, on_unstage, on_open, on_reveal,
+    def __init__(self, on_files_selected, on_stage, on_unstage, on_open, on_reveal,
                  on_discard, on_delete, on_untrack, on_ignore):
         """on_open receives one entry; on_reveal receives one entry, or None to
-        reveal the repository folder; on_stage / on_unstage /
+        reveal the repository folder; on_files_selected / on_stage / on_unstage /
         on_discard / on_delete / on_untrack / on_ignore receive a list of
-        entries. on_file_selected receives one entry, or None when zero or
-        several files are selected."""
+        entries."""
         super().__init__('Files')
-        self.on_file_selected = on_file_selected
+        self.on_files_selected = on_files_selected
         self.on_stage = on_stage
         self.on_unstage = on_unstage
         self.on_open = on_open
@@ -30,7 +31,7 @@ class FilesPanel(Panel):
         self.on_ignore = on_ignore
         self._rebuilding = False
 
-        self.store = Gtk.ListStore(str, str, str, str, bool, bool, bool, str)
+        self.store = Gtk.ListStore(str, str, str, str, str, bool, bool, bool, str)
         self.view = Gtk.TreeView(model=self.store)
         self.view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
         self._columns = {}
@@ -45,6 +46,7 @@ class FilesPanel(Panel):
         self._columns['name'] = name_col
 
         for title, col, key, width in (('State', COL_STATE, 'state', 130),
+                                       ('Type', COL_TYPE, 'type', 80),
                                        ('Relative Directory', COL_DIR, 'dir', 300)):
             renderer = Gtk.CellRendererText()
             renderer.props.ellipsize = 3  # Pango.EllipsizeMode.END
@@ -92,27 +94,41 @@ class FilesPanel(Panel):
         _model, selected = selection.get_selected_rows()
         first_row = selected[0].get_indices()[0] if selected else 0
 
-        wanted = {e['path'] for e in entries}
+        # A path can show up twice — `git rm --cached` leaves a file both as a
+        # staged deletion and as untracked — so rows are matched by path *and*
+        # count, otherwise the second entry would overwrite the first one's row
+        # and one of the two would never be listed.
+        wanted = Counter(e['path'] for e in entries)
+        kept_above = 0  # surviving rows above the selection: its new position
+        position = 0
         row_iter = self.store.get_iter_first()
         while row_iter is not None:
-            if self.store[row_iter][COL_PATH] in wanted:
+            path = self.store[row_iter][COL_PATH]
+            if wanted[path]:
+                wanted[path] -= 1
+                kept_above += position < first_row
                 row_iter = self.store.iter_next(row_iter)
             elif not self.store.remove(row_iter):  # removed the last row
                 row_iter = None
+            position += 1
 
         # With a sort column active the store decides where a row goes, so new
         # ones are simply appended; unsorted, they take their `git status` spot
         # (the rows that survived are still in that order).
-        sort_column = self.store.get_sort_column_id()[1]  # None while unsorted
+        sort_column = self.store.get_sort_column_id()[0]  # None while unsorted
         by_column = sort_column is not None and sort_column >= 0
-        rows = {row[COL_PATH]: row for row in self.store}
+        rows = {}
+        for row in self.store:
+            rows.setdefault(row[COL_PATH], []).append(row)
         for index, e in enumerate(entries):
-            values = [e['name'], e['state'], e['dir'], e['path'], e['staged'],
-                      e['unstaged'], e['untracked'], state_icon(e['state'])]
-            row = rows.get(e['path'])
-            if row is None:
+            values = [e['name'], e['state'], e['type'], e['dir'], e['path'],
+                      e['staged'], e['unstaged'], e['untracked'],
+                      state_icon(e['state'])]
+            same_path = rows.get(e['path'])
+            if not same_path:
                 self.store.insert(len(self.store) if by_column else index, values)
                 continue
+            row = same_path.pop(0)
             for col, value in enumerate(values):
                 if row[col] != value:
                     row[col] = value
@@ -120,7 +136,7 @@ class FilesPanel(Panel):
         if selected and not selection.count_selected_rows() and len(self.store):
             # Every selected file left the list (staged, committed, discarded):
             # select whatever took its place instead of losing the position.
-            index = min(first_row, len(self.store) - 1)
+            index = min(kept_above, len(self.store) - 1)
             selection.select_path(Gtk.TreePath.new_from_indices([index]))
         self._rebuilding = False
 
@@ -129,6 +145,14 @@ class FilesPanel(Panel):
         return {'path': row[COL_PATH], 'staged': row[COL_STAGED],
                 'unstaged': row[COL_UNSTAGED], 'untracked': row[COL_UNTRACKED]}
 
+    def cursor_path(self):
+        """Path of the row the keyboard cursor sits on — the file just reached
+        with the arrow keys — or None when there is no cursor."""
+        tree_path, _column = self.view.get_cursor()
+        if tree_path is None:
+            return None
+        return self.store[tree_path][COL_PATH]
+
     def selected_entries(self):
         model, paths = self.view.get_selection().get_selected_rows()
         return [self._entry(model[p]) for p in paths]
@@ -136,8 +160,7 @@ class FilesPanel(Panel):
     def _on_selection_changed(self, _selection):
         if self._rebuilding:
             return
-        entries = self.selected_entries()
-        self.on_file_selected(entries[0] if len(entries) == 1 else None)
+        self.on_files_selected(self.selected_entries())
 
     def _on_row_activated(self, view, path, column):
         self.on_open(self._entry(self.store[path]))

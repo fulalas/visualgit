@@ -59,6 +59,13 @@ def git_available():
     return git_binary_works(_GIT_BINARY)
 
 
+def _file_type(path):
+    """File extension, lowercase and without the dot. Empty for files with no
+    extension — including dotfiles like `.gitignore`, whose leading dot names
+    the file rather than starting an extension."""
+    return os.path.splitext(os.path.basename(path))[1].lstrip('.').lower()
+
+
 class GitError(Exception):
     pass
 
@@ -222,6 +229,7 @@ class Git:
             entries.append({
                 'path': path,
                 'name': os.path.basename(path),
+                'type': _file_type(path),
                 'dir': os.path.dirname(path),
                 'state': self._state_label(x, y),
                 'untracked': x == '?',

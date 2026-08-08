@@ -133,7 +133,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.branches_panel = BranchesPanel(on_merge_from=self.merge_from,
                                             on_checkout=self.checkout_branch,
                                             on_delete=self.delete_branch)
-        self.files_panel = FilesPanel(on_file_selected=self._on_file_selected,
+        self.files_panel = FilesPanel(on_files_selected=self._on_files_selected,
                                       on_stage=self._stage_files,
                                       on_unstage=self._unstage_files,
                                       on_open=self._open_file,
@@ -363,9 +363,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 # byte-identical yet still changes the diff we're showing.
                 if data['status'] != self._last_status:
                     self._apply_status(data['status'])
-                selected = self.files_panel.selected_entries()
-                if len(selected) == 1:
-                    self._on_file_selected(selected[0])
+                self._refresh_diff()
             self._mark_refreshed()
             if self._resync_pending:
                 self._resync_pending = False
@@ -430,11 +428,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.journal_panel.set_commits(data['log'], data['head'])
             # Show the diff of whatever the file list kept selected (after a
             # commit that is the row which replaced the committed file).
-            selected = self.files_panel.selected_entries()
-            if len(selected) == 1:
-                self._on_file_selected(selected[0])
-            else:
-                self.diff_panel.clear()
+            self._refresh_diff()
             self.repos_panel.update_branch(git.path, os.path.basename(git.path),
                                            data['current'])
             self._last_rev = (data['head'], data['current'])
@@ -678,12 +672,17 @@ class MainWindow(Gtk.ApplicationWindow):
 
     # ------------------------------------------------------- files & diff
 
-    def _on_file_selected(self, entry):
+    def _refresh_diff(self):
+        """Show the diff of the file the cursor sits on — the one last added to
+        the selection — no matter how many files are selected."""
         if self.git is None:
             return
-        if entry is None:  # zero or several files selected
+        entries = self.files_panel.selected_entries()
+        if not entries:
             self.diff_panel.clear()
             return
+        cursor = self.files_panel.cursor_path()
+        entry = next((e for e in entries if e['path'] == cursor), entries[-1])
         try:
             staged_only = entry['staged'] and not entry['unstaged']
             diff = self.git.diff_file(entry['path'], staged=staged_only,
@@ -691,6 +690,9 @@ class MainWindow(Gtk.ApplicationWindow):
             self.diff_panel.set_diff(diff)
         except GitError as exc:
             self.toast.show_message(str(exc))
+
+    def _on_files_selected(self, _entries):
+        self._refresh_diff()
 
     def _abs_path(self, entry):
         return os.path.join(self.git.path, entry['path'])
@@ -842,11 +844,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._apply_status(self.git.status())
         except GitError as exc:
             self.toast.show_message(str(exc))
-        entries = self.files_panel.selected_entries()
-        if len(entries) == 1:
-            self._on_file_selected(entries[0])
-        else:
-            self.diff_panel.clear()
+        self._refresh_diff()
         self._mark_refreshed()
 
     # ------------------------------------------------------------ branches
