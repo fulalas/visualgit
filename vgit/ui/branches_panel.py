@@ -1,7 +1,8 @@
 """Bottom-left panel: local and remote branches, grouped by remote.
 
 Local non-current and remote branches offer 'Checkout' and 'Merge from'
-via context menu; double-click also checks out.
+via context menu; double-click also checks out. The 'Local Branches' row
+offers 'Create branch...'.
 """
 import gi
 gi.require_version('Gtk', '3.0')
@@ -10,17 +11,19 @@ from gi.repository import Gtk, GLib, Gdk
 from vgit.ui.panel import Panel, popup_menu, row_at_event
 
 COL_MARKUP, COL_NAME, COL_KIND, COL_CURRENT = range(4)
-# kind: 'header' (group row), 'local', 'remote'
+# kind: 'local-header' (Local Branches row), 'header' (remote group row),
+# 'local', 'remote'
 
 
 class BranchesPanel(Panel):
-    def __init__(self, on_merge_from, on_checkout, on_delete):
+    def __init__(self, on_merge_from, on_checkout, on_delete, on_create):
         """on_checkout(name, kind) and on_delete(name, kind) with kind
         'local' or 'remote'."""
         super().__init__('Branches')
         self.on_merge_from = on_merge_from
         self.on_checkout = on_checkout
         self.on_delete = on_delete
+        self.on_create = on_create
 
         self.store = Gtk.TreeStore(str, str, str, bool)
         self.view = Gtk.TreeView(model=self.store)
@@ -42,7 +45,8 @@ class BranchesPanel(Panel):
             shown.insert(0, current)  # detached HEAD / unborn branch
 
         local_parent = self.store.append(None, [
-            '<b>Local Branches (%d)</b>' % len(shown), '', 'header', False])
+            '<b>Local Branches (%d)</b>' % len(shown), '', 'local-header',
+            False])
         for name in shown:
             is_current = name == current
             escaped = GLib.markup_escape_text(name)
@@ -102,6 +106,9 @@ class BranchesPanel(Panel):
         if itr is None:
             return True
         name, kind, is_current = self._row_info(itr)
+        if kind == 'local-header':
+            popup_menu(view, event, [('Create branch...', self.on_create)])
+            return True
         if kind == 'header' or is_current:
             return True
         popup_menu(view, event, [

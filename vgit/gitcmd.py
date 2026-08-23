@@ -490,6 +490,10 @@ class Git:
         remote, _, short = remote_ref.partition('/')
         self._run('push', remote, '--delete', short, auth=True)
 
+    def create_branch(self, name):
+        """Create a branch at HEAD and switch to it."""
+        self._run('checkout', '-b', name)
+
     def merge(self, branch):
         self._run('merge', '--no-edit', branch, env={'GIT_EDITOR': 'true'})
 

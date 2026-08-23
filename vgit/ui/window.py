@@ -132,7 +132,8 @@ class MainWindow(Gtk.ApplicationWindow):
                                       on_remove=self.remove_repository)
         self.branches_panel = BranchesPanel(on_merge_from=self.merge_from,
                                             on_checkout=self.checkout_branch,
-                                            on_delete=self.delete_branch)
+                                            on_delete=self.delete_branch,
+                                            on_create=self.create_branch)
         self.files_panel = FilesPanel(on_files_selected=self._on_files_selected,
                                       on_stage=self._stage_files,
                                       on_unstage=self._unstage_files,
@@ -673,16 +674,14 @@ class MainWindow(Gtk.ApplicationWindow):
     # ------------------------------------------------------- files & diff
 
     def _refresh_diff(self):
-        """Show the diff of the file the cursor sits on — the one last added to
-        the selection — no matter how many files are selected."""
+        """Show the diff of the file last added to the selection, no matter how
+        many files are selected."""
         if self.git is None:
             return
-        entries = self.files_panel.selected_entries()
-        if not entries:
+        entry = self.files_panel.focus_entry()
+        if entry is None:
             self.diff_panel.clear()
             return
-        cursor = self.files_panel.cursor_path()
-        entry = next((e for e in entries if e['path'] == cursor), entries[-1])
         try:
             staged_only = entry['staged'] and not entry['unstaged']
             diff = self.git.diff_file(entry['path'], staged=staged_only,
@@ -861,6 +860,22 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message('Checkout failed: %s' % exc)
             return
         self.toast.show_message("Switched to '%s'." % self.git.current_branch())
+        self.refresh_repo_views()
+
+    def create_branch(self):
+        if not self._require_repo() or self._remote_in_progress():
+            return
+        name = dialogs.input_dialog(
+            self, 'Create Branch', 'Name:',
+            note='The branch starts at the current commit and is checked out.')
+        if not name:
+            return
+        try:
+            self.git.create_branch(name)
+        except GitError as exc:
+            self.toast.show_message('Create failed: %s' % exc)
+            return
+        self.toast.show_message("Switched to '%s'." % name)
         self.refresh_repo_views()
 
     def delete_branch(self, name, kind):

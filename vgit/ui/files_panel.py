@@ -30,6 +30,8 @@ class FilesPanel(Panel):
         self.on_untrack = on_untrack
         self.on_ignore = on_ignore
         self._rebuilding = False
+        self._selected_keys = []  # row keys selected at the last change
+        self._focus = None        # row key the diff follows (last one selected)
 
         self.store = Gtk.ListStore(str, str, str, str, str, bool, bool, bool, str)
         self.view = Gtk.TreeView(model=self.store)
@@ -80,6 +82,7 @@ class FilesPanel(Panel):
         where keeping the old repo's rows selected makes no sense."""
         self._rebuilding = True
         self.view.get_selection().unselect_all()
+        self._update_focus()
         self._rebuilding = False
 
     def set_files(self, entries):
@@ -126,7 +129,12 @@ class FilesPanel(Panel):
                       state_icon(e['state'])]
             same_path = rows.get(e['path'])
             if not same_path:
-                self.store.insert(len(self.store) if by_column else index, values)
+                if by_column:
+                    self.store.append(values)
+                else:
+                    self.store.insert(index, values)
+                    # A row added above the replacement pushes it one down.
+                    kept_above += index < kept_above
                 continue
             row = same_path.pop(0)
             for col, value in enumerate(values):
@@ -138,6 +146,7 @@ class FilesPanel(Panel):
             # select whatever took its place instead of losing the position.
             index = min(kept_above, len(self.store) - 1)
             selection.select_path(Gtk.TreePath.new_from_indices([index]))
+        self._update_focus()
         self._rebuilding = False
 
     @staticmethod
@@ -145,13 +154,56 @@ class FilesPanel(Panel):
         return {'path': row[COL_PATH], 'staged': row[COL_STAGED],
                 'unstaged': row[COL_UNSTAGED], 'untracked': row[COL_UNTRACKED]}
 
-    def cursor_path(self):
-        """Path of the row the keyboard cursor sits on — the file just reached
-        with the arrow keys — or None when there is no cursor."""
+    def _row_keys(self):
+        """One key per row, in list order: (path, how many rows with that path
+        come before it). Identifies a row even when two rows share a path
+        (`git rm --cached`), and survives a refresh that moves rows around."""
+        seen = Counter()
+        keys = []
+        for row in self.store:
+            path = row[COL_PATH]
+            keys.append((path, seen[path]))
+            seen[path] += 1
+        return keys
+
+    def _selected_indices(self):
+        _model, paths = self.view.get_selection().get_selected_rows()
+        return [p.get_indices()[0] for p in paths]
+
+    def _update_focus(self):
+        """Remember which row the diff should follow: the one last added to the
+        selection. Rows leaving the selection don't move the focus unless the
+        focused row itself is gone, so Ctrl+clicking a row off leaves the diff
+        where it was."""
+        keys = self._row_keys()
+        selected = [keys[i] for i in self._selected_indices() if i < len(keys)]
+        added = [key for key in selected if key not in self._selected_keys]
+        self._selected_keys = selected
+        if not selected:
+            self._focus = None
+        elif added:
+            cursor = self._cursor_key(keys)
+            self._focus = cursor if cursor in added else added[-1]
+        elif self._focus not in selected:
+            self._focus = selected[-1]
+
+    def _cursor_key(self, keys):
         tree_path, _column = self.view.get_cursor()
         if tree_path is None:
             return None
-        return self.store[tree_path][COL_PATH]
+        index = tree_path.get_indices()[0]
+        return keys[index] if index < len(keys) else None
+
+    def focus_entry(self):
+        """Entry of the row the diff follows, or None when nothing is selected."""
+        keys = self._row_keys()
+        selected = [i for i in self._selected_indices() if i < len(keys)]
+        if not selected:
+            return None
+        index = keys.index(self._focus) if self._focus in keys else -1
+        if index not in selected:
+            index = selected[-1]  # focus row gone: fall back to the bottom one
+        return self._entry(self.store[index])
 
     def selected_entries(self):
         model, paths = self.view.get_selection().get_selected_rows()
@@ -160,6 +212,7 @@ class FilesPanel(Panel):
     def _on_selection_changed(self, _selection):
         if self._rebuilding:
             return
+        self._update_focus()
         self.on_files_selected(self.selected_entries())
 
     def _on_row_activated(self, view, path, column):
