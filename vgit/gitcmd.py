@@ -1,4 +1,3 @@
-"""All git interaction, via the git CLI (one subprocess per operation)."""
 import os
 import stat
 import subprocess
@@ -6,10 +5,8 @@ import tempfile
 
 SEP = '\x1f'
 
-# Handed to git via GIT_ASKPASS to answer username/password prompts from
-# environment variables set only for that git subprocess. Written to a fresh
-# temp file per invocation (see _write_askpass) and removed immediately after,
-# so nothing persists on disk.
+# Handed to git via GIT_ASKPASS; the values come from environment variables
+# set only for that git subprocess.
 _ASKPASS_SCRIPT = """#!/bin/sh
 case "$1" in
     [Uu]sername*) printf '%s\\n' "$VGIT_USERNAME" ;;
@@ -19,8 +16,6 @@ esac
 
 
 def _write_askpass():
-    """Write the GIT_ASKPASS helper to a fresh temp file (0700) and return its
-    path. The caller must unlink it once git has finished."""
     fd, path = tempfile.mkstemp(prefix='vgit-askpass-', suffix='.sh')
     try:
         with os.fdopen(fd, 'w', encoding='utf-8') as f:
@@ -31,8 +26,6 @@ def _write_askpass():
     os.chmod(path, stat.S_IRWXU)
     return path
 
-# Which git executable to invoke. Defaults to 'git' (found on PATH); can be
-# pointed at an explicit path via set_git_binary() when git is elsewhere.
 _GIT_BINARY = 'git'
 
 
@@ -46,7 +39,6 @@ def git_binary():
 
 
 def git_binary_works(path):
-    """True if `path` runs and reports itself as git."""
     try:
         proc = subprocess.run([path, '--version'], capture_output=True, text=True)
     except OSError:
@@ -55,14 +47,12 @@ def git_binary_works(path):
 
 
 def git_available():
-    """True if the currently configured git binary is runnable."""
     return git_binary_works(_GIT_BINARY)
 
 
 def _file_type(path):
-    """File extension, lowercase and without the dot. Empty for files with no
-    extension — including dotfiles like `.gitignore`, whose leading dot names
-    the file rather than starting an extension."""
+    # A dotfile like `.gitignore` must come out with no extension, which is
+    # what splitext already does.
     return os.path.splitext(os.path.basename(path))[1].lstrip('.').lower()
 
 
@@ -85,8 +75,6 @@ class Git:
             environ['GIT_TERMINAL_PROMPT'] = '0'
             creds = self.cred_provider() if self.cred_provider else None
             if creds and creds[0]:
-                # Generated on the fly and deleted below, so no helper script
-                # is left behind in the user's config folder.
                 askpass_file = _write_askpass()
                 environ['GIT_ASKPASS'] = askpass_file
                 environ['VGIT_USERNAME'] = creds[0]
@@ -97,8 +85,6 @@ class Git:
             proc = subprocess.run([_GIT_BINARY, '-C', self.path] + list(args),
                                   capture_output=True, text=True, env=environ)
         except OSError as exc:
-            # e.g. the git binary is missing/misconfigured — surface it the
-            # same way as any other git failure so callers can show a toast.
             raise GitError('Could not run git (%s): %s' % (_GIT_BINARY, exc))
         finally:
             if askpass_file:
@@ -122,10 +108,7 @@ class Git:
             return False
         return proc.returncode == 0 and proc.stdout.strip() == 'true'
 
-    # ------------------------------------------------------------- queries
-
     def _branch_name(self):
-        """Current branch name, or '' when detached or on no commits."""
         proc = self._run('symbolic-ref', '--short', 'HEAD', check=False)
         return proc.stdout.strip() if proc.returncode == 0 else ''
 
@@ -145,12 +128,6 @@ class Git:
         return [l for l in proc.stdout.splitlines() if l and not l.startswith('(')]
 
     def ahead_counts(self):
-        """Map local branch -> number of committed-but-unpushed commits.
-
-        When a branch has a configured upstream, use git's ahead count against
-        it. Otherwise, if the repo has any remote, count commits on the branch
-        that aren't on any remote-tracking branch. Repos with no remote at all
-        (nowhere to push) and branches in sync are omitted."""
         proc = self._run('for-each-ref',
                          '--format=%(refname:short)\t%(upstream)\t'
                          '%(upstream:track,nobracket)', 'refs/heads', check=False)
@@ -178,7 +155,6 @@ class Git:
         return counts
 
     def _count_unpushed(self, branch):
-        """Commits on `branch` not reachable from any remote-tracking ref."""
         proc = self._run('rev-list', '--count', branch, '--not', '--remotes',
                          check=False)
         if proc.returncode != 0:
@@ -189,7 +165,6 @@ class Git:
             return 0
 
     def remote_branches(self):
-        """Remote-tracking branches (e.g. 'origin/main'), without HEAD pointers."""
         proc = self._run('branch', '-r', '--format=%(refname:short)', check=False)
         if proc.returncode != 0:
             return []
@@ -210,10 +185,10 @@ class Git:
         return 'Staged + ' + {'M': 'Modified', 'D': 'Deleted'}.get(y, y)
 
     def status(self):
-        # -uall: list untracked files individually instead of collapsing
-        # an untracked directory into a single 'dir/' entry.
         # -z: NUL-separated, unquoted output — plain parsing would receive
         # C-quoted escapes for any path with non-ASCII/special characters.
+        # -uall lists untracked files individually, but a nested repository
+        # still comes back as a single 'dir/' entry.
         proc = self._run('status', '--porcelain', '-z', '-uall')
         entries = []
         tokens = proc.stdout.split('\0')
@@ -226,9 +201,8 @@ class Git:
             x, y, path = token[0], token[1], token[3:]
             if x in 'RC' or y in 'RC':
                 index += 1  # the following token is the rename origin path
-            # An untracked nested repository is reported as 'dir/'; the trailing
-            # slash makes basename() empty, so the Name column would be blank.
-            # The name keeps a slash to mark the entry as a folder.
+            # The trailing slash of a folder entry makes basename() empty, so
+            # it is stripped; the name keeps one to mark the entry as a folder.
             named = path.rstrip('/')
             is_dir = named != path
             entries.append({
@@ -265,10 +239,7 @@ class Git:
                       'R': 'Renamed', 'C': 'Copied', 'T': 'Type changed'}
 
     def commit_files(self, commit):
-        """Files touched by `commit`, each as a dict like `status()` entries
-        (name/dir/path/state). Compared against the first parent — `-m
-        --first-parent` so merge commits report changes too (a plain
-        `git show` emits nothing for a merge)."""
+        # -m --first-parent: a plain `git show` emits nothing for a merge.
         proc = self._run('show', '--format=', '--name-status', '-M', '-m',
                          '--first-parent', '-z', commit, check=False)
         if proc.returncode != 0:
@@ -300,8 +271,6 @@ class Git:
         return entries
 
     def commit_file_diff(self, commit, path):
-        """Unified diff for a single file within `commit`, against its first
-        parent (works for merge commits too)."""
         return self._run('show', '--format=', '-M', '-m', '--first-parent',
                          commit, '--', path, check=False).stdout
 
@@ -328,8 +297,6 @@ class Git:
 
     @staticmethod
     def _remote_refs(refs, prefixes):
-        """Keep only remote-tracking refs (e.g. 'origin/2.8'), dropping local
-        branches, HEAD pointers and tags."""
         if not prefixes:
             return ''
         kept = [r for r in (t.strip() for t in refs.split(','))
@@ -348,21 +315,17 @@ class Git:
         return name, email, body.strip()
 
     def identity(self):
-        """Effective user.name / user.email for this repo ('' when unset)."""
         name = self._run('config', 'user.name', check=False).stdout.strip()
         email = self._run('config', 'user.email', check=False).stdout.strip()
         return name, email
 
     def set_identity(self, name, email):
-        """Write identity into this repository's .git/config."""
         self._run('config', 'user.name', name)
         self._run('config', 'user.email', email)
 
     def head_hash(self):
         proc = self._run('rev-parse', 'HEAD', check=False)
         return proc.stdout.strip() if proc.returncode == 0 else None
-
-    # ------------------------------------------------------------- actions
 
     def stage(self, path):
         self._run('add', '--', path)
@@ -373,13 +336,9 @@ class Git:
         self._run('reset', '-q', '--', path)
 
     def rm_cached(self, path):
-        # Stop tracking the file but leave the working tree copy on disk.
         self._run('rm', '--cached', '--', path)
 
     def add_to_gitignore(self, rel_paths):
-        """Append anchored patterns for the given repo-relative paths to the
-        repo's root .gitignore, skipping any already present. Returns the list
-        of patterns actually added."""
         gitignore = os.path.join(self.path, '.gitignore')
         lines = []
         if os.path.isfile(gitignore):
@@ -402,7 +361,6 @@ class Git:
         return added
 
     def discard(self, path):
-        """Revert a tracked file (index and working tree) back to HEAD."""
         self._run('restore', '--source=HEAD', '--staged', '--worktree', '--', path)
 
     def commit(self, message):
@@ -426,25 +384,20 @@ class Git:
             self._run('pull', '--no-edit', auth=True)
 
     def remotes(self):
-        """Names of configured remotes (e.g. ['origin'])."""
         proc = self._run('remote', check=False)
         return proc.stdout.split() if proc.returncode == 0 else []
 
     def get_remote_url(self, name='origin'):
-        """URL of the named remote, or '' if it doesn't exist."""
         proc = self._run('remote', 'get-url', name, check=False)
         return proc.stdout.strip() if proc.returncode == 0 else ''
 
     def set_remote(self, name, url):
-        """Point `name` at `url`, adding the remote if it doesn't exist yet."""
         if name in self.remotes():
             self._run('remote', 'set-url', name, url)
         else:
             self._run('remote', 'add', name, url)
 
     def _push_remote(self):
-        """Remote to push to: the branch's configured remote, else the only
-        remote, else 'origin' when several exist."""
         branch = self._branch_name()
         if branch:
             remote = self._run('config', 'branch.%s.remote' % branch,
@@ -459,16 +412,13 @@ class Git:
         return remotes[0]
 
     def effective_remote(self):
-        """Name of the remote push/pull would use; 'origin' if none exists
-        yet (the name a new remote should be created under)."""
         try:
             return self._push_remote()
         except GitError:
             return 'origin'
 
     def remote_needs_password(self):
-        """True if the effective remote is over HTTP(S) — the only transport
-        the stored username/password credentials apply to."""
+        # HTTP(S) is the only transport the stored credentials apply to.
         url = self.get_remote_url(self.effective_remote())
         return url.startswith('http://') or url.startswith('https://')
 
@@ -486,17 +436,14 @@ class Git:
                 raise GitError(err.strip() or 'git push failed')
 
     def delete_local_branch(self, name):
-        """Delete a local branch. Uses -D so an unmerged branch still deletes;
-        the UI confirms before calling this."""
+        # -D so an unmerged branch still deletes; the UI confirms first.
         self._run('branch', '-D', name)
 
     def delete_remote_branch(self, remote_ref):
-        """Delete a branch on its remote, e.g. 'origin/feature'."""
         remote, _, short = remote_ref.partition('/')
         self._run('push', remote, '--delete', short, auth=True)
 
     def create_branch(self, name):
-        """Create a branch at HEAD and switch to it."""
         self._run('checkout', '-b', name)
 
     def merge(self, branch):
@@ -506,7 +453,6 @@ class Git:
         self._run('checkout', ref)
 
     def checkout_remote(self, remote_ref):
-        """Check out a remote branch, creating a local tracking branch if needed."""
         local = remote_ref.partition('/')[2] or remote_ref
         if local in self.branches():
             self._run('checkout', local)
@@ -514,8 +460,6 @@ class Git:
             self._run('checkout', '-b', local, '--track', remote_ref)
 
     def reword(self, commit, message, author_name, author_email):
-        """Rewrite message/author of any commit. Returns True if history
-        beyond HEAD was rewritten (rebase used)."""
         full = self._run('rev-parse', commit).stdout.strip()
         author = '%s <%s>' % (author_name, author_email)
         if full == self.head_hash():

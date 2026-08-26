@@ -1,4 +1,3 @@
-"""Bottom panel: commit log (journal) with a commit context menu."""
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
@@ -34,16 +33,13 @@ class JournalPanel(Panel):
                                         weight=COL_WEIGHT)
             column.set_resizable(True)
             if key is None:
-                # Subject fills the remaining space; its width is derived,
-                # so it is not persisted.
+                # Subject's width is derived, so it is not persisted.
                 column.set_expand(True)
             else:
                 column.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
                 column.set_fixed_width(width)
                 self._columns[key] = column
             self.view.append_column(column)
-        # Subject already soaks up the slack, so keep the filler width-less;
-        # it exists only to give the Date column a resize grip.
         add_filler_column(self.view, expand=False)
         self.view.connect('button-press-event', self._on_button_press)
         self.view.connect('row-activated', self._on_row_activated)

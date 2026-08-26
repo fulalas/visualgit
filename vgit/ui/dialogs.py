@@ -1,4 +1,3 @@
-"""Modal dialogs: add repository, credentials, edit commit, locate git."""
 import os
 
 import gi
@@ -9,29 +8,23 @@ from gi.repository import Gtk, GdkPixbuf, GLib
 from vgit.resources import resource_path
 
 LOGO_PATH = resource_path('vgit', 'ui', 'icons', 'logo.svg')
-DIALOG_WIDTH = 593  # shared width of the repository modals
+DIALOG_WIDTH = 593
 
 
 def repo_title(repo_name, action):
-    """Title bar text of a repository modal: '[RepoName] [Action]'. Only the
-    first letter of the name is forced up — the rest is left as on disk."""
     return '%s%s %s' % (repo_name[:1].upper(), repo_name[1:], action)
 
 
 def _fix_width(dialog):
-    """Pin a modal to the shared width. A default size alone is not enough:
-    a dialog never shrinks below the width its content asks for, so the size
-    request (a floor) is paired with wrapping labels (which keep the content
-    from asking for more)."""
-    dialog.set_resizable(True)  # message dialogs are not resizable by default,
-                                # and a fixed dialog ignores the size below
+    # A default size alone is not enough: a dialog never shrinks below the
+    # width its content asks for, so the size request is paired with wrapping
+    # labels. A non-resizable dialog ignores both.
+    dialog.set_resizable(True)
     dialog.set_default_size(DIALOG_WIDTH, -1)
     dialog.set_size_request(DIALOG_WIDTH, -1)
 
 
 def _wrap_message(dialog):
-    """Make the labels of a message dialog wrap inside the shared width
-    instead of stretching it to fit the longest line."""
     for child in dialog.get_message_area().get_children():
         if isinstance(child, Gtk.Label):
             child.set_line_wrap(True)
@@ -39,7 +32,6 @@ def _wrap_message(dialog):
 
 
 def _append_note(box, text):
-    """Dim explanatory label at the bottom of a dialog."""
     label = Gtk.Label(label=text, xalign=0, wrap=True, max_width_chars=54,
                       margin_start=12, margin_end=12, margin_bottom=12)
     label.get_style_context().add_class('dim-label')
@@ -58,8 +50,6 @@ def choose_repository_folder(parent):
 
 
 def choose_git_folder(parent):
-    """Ask for the folder that contains the git program. Returns the folder
-    path, or None if cancelled. No validation is done here."""
     dialog = Gtk.FileChooserDialog(
         title='Locate git — choose the folder containing the git program',
         parent=parent, action=Gtk.FileChooserAction.SELECT_FOLDER)
@@ -76,7 +66,6 @@ def choose_git_folder(parent):
 
 
 def input_dialog(parent, title, label, text='', note=None):
-    """One-field text prompt. Returns the entered text (stripped) or None."""
     dialog = Gtk.Dialog(title=title, parent=parent, modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)
@@ -98,7 +87,7 @@ def about_dialog(parent, version):
     try:
         dialog.set_logo(GdkPixbuf.Pixbuf.new_from_file_at_size(LOGO_PATH, 96, 96))
     except GLib.Error:
-        pass  # bundled logo unreadable — show the dialog without a logo
+        pass
     dialog.set_program_name('VisualGit')
     dialog.set_version(version)
     dialog.set_comments('A simple, intentionally minimal git GUI client.\n'
@@ -132,8 +121,6 @@ def _labeled_grid(rows):
 
 def credentials_dialog(parent, repo_name, username='', has_password=False,
                        note=None):
-    """Ask for user/password for one repository. Returns (user, password) or
-    None. `note` is an optional explanation shown at the bottom."""
     dialog = Gtk.Dialog(title=repo_title(repo_name, 'Credentials'),
                         parent=parent, modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -162,9 +149,6 @@ def credentials_dialog(parent, repo_name, username='', has_password=False,
 
 
 def identity_dialog(parent, repo_name, name='', email='', note=None):
-    """Ask for the commit identity of one repository (user.name / user.email).
-    Returns (name, email) or None. `note` is an optional explanation shown
-    at the bottom."""
     dialog = Gtk.Dialog(title=repo_title(repo_name, 'Identity'),
                         parent=parent, modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
@@ -189,7 +173,6 @@ def identity_dialog(parent, repo_name, name='', email='', note=None):
 
 
 def confirm_dialog(parent, title, text):
-    """Yes/No confirmation. Returns True if the user confirmed."""
     dialog = Gtk.MessageDialog(parent=parent, modal=True,
                                message_type=Gtk.MessageType.QUESTION,
                                buttons=Gtk.ButtonsType.YES_NO,
@@ -203,7 +186,6 @@ def confirm_dialog(parent, title, text):
 
 
 def edit_commit_dialog(parent, message, author_name, author_email):
-    """Edit a commit's message and author. Returns dict or None."""
     dialog = Gtk.Dialog(title='Edit Commit', parent=parent, modal=True)
     dialog.add_buttons(Gtk.STOCK_CANCEL, Gtk.ResponseType.CANCEL,
                        Gtk.STOCK_OK, Gtk.ResponseType.OK)

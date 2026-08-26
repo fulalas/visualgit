@@ -1,4 +1,3 @@
-"""Top-left panel: list of registered repositories."""
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gdk
@@ -21,7 +20,7 @@ class ReposPanel(Panel):
         self._rebuilding = False
         self._active = None
 
-        self.store = Gtk.ListStore(str, str, str, str)  # markup, path, name, branch
+        self.store = Gtk.ListStore(str, str, str, str)
         self.view = Gtk.TreeView(model=self.store)
         self.view.set_headers_visible(False)
         column = Gtk.TreeViewColumn('Repository', Gtk.CellRendererText(), markup=COL_MARKUP)
@@ -49,7 +48,6 @@ class ReposPanel(Panel):
                                        row[COL_PATH] == self._active)
 
     def set_repos(self, items):
-        """items: list of dicts with 'path', 'name', 'branch'."""
         self._rebuilding = True
         selected = self.selected_path()
         self.store.clear()
@@ -92,7 +90,6 @@ class ReposPanel(Panel):
             self.on_selected(model[itr][COL_PATH])
 
     def _on_key_press(self, _view, event):
-        # Delete key mirrors the context-menu 'Remove' action.
         if event.keyval != Gdk.KEY_Delete:
             return False
         path = self.selected_path()

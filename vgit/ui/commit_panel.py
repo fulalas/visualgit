@@ -1,4 +1,3 @@
-"""Top-right panel: commit message field with Ctrl+Up/Down history navigation."""
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Gdk
@@ -6,8 +5,6 @@ from gi.repository import Gtk, Gdk
 
 class CommitPanel(Gtk.Box):
     def __init__(self, on_commit, get_history, on_info):
-        """get_history() -> list of past commit messages (newest first).
-        on_info(text) shows a toast message."""
         super().__init__(orientation=Gtk.Orientation.VERTICAL)
         self.on_commit = on_commit
         self.get_history = get_history
@@ -39,9 +36,8 @@ class CommitPanel(Gtk.Box):
         action_row.pack_end(commit_button, False, False, 0)
         self.pack_start(action_row, False, False, 0)
 
-        # Message-history navigation state.
-        self._messages = None   # fetched lazily on first Ctrl+Up
-        self._index = -1        # -1 = the user's own draft
+        self._messages = None
+        self._index = -1
         self._draft = ''
         self._navigating = False
 
@@ -67,7 +63,6 @@ class CommitPanel(Gtk.Box):
         self._navigating = False
 
     def _on_buffer_changed(self, _buffer):
-        # A manual edit becomes the new draft; navigation restarts from it.
         if not self._navigating:
             self._messages = None
             self._index = -1

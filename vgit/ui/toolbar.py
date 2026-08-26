@@ -1,4 +1,3 @@
-"""Main toolbar: Add (repository), Pull, Push (left); About (right)."""
 import gi
 gi.require_version('Gtk', '3.0')
 gi.require_version('GdkPixbuf', '2.0')
@@ -6,15 +5,13 @@ from gi.repository import Gtk, GdkPixbuf, GLib
 
 from vgit.resources import resource_path
 
-_ICON_PX = 24       # rendered size of the bundled toolbar SVGs
-_ICON_COLOR = '#2e3440'  # authored fill/stroke in the SVGs; swapped for the theme fg
+_ICON_PX = 24
+_ICON_COLOR = '#2e3440'  # the fill/stroke the bundled SVGs are authored in
 
 
 def _load_icon(name, fg_hex):
-    """Render icons/<name>.svg at the theme foreground colour. The SVGs are
-    authored in _ICON_COLOR; we substitute the widget's actual text colour so
-    the icons stay visible on both light and dark themes (a fixed colour would
-    vanish on one or the other). Returns a Pixbuf, or None if unreadable."""
+    # The authored colour is swapped for the widget's text colour: a fixed one
+    # would vanish on either a light or a dark theme.
     path = resource_path('vgit', 'ui', 'icons', name + '.svg')
     try:
         with open(path, 'r', encoding='utf-8') as f:
@@ -32,7 +29,7 @@ class Toolbar(Gtk.Toolbar):
     def __init__(self, on_add, on_pull, on_push, on_about):
         super().__init__()
         self.set_style(Gtk.ToolbarStyle.BOTH)
-        self._icons = []  # (Gtk.Image, svg name) — recoloured on theme changes
+        self._icons = []
 
         self._add = self._button('add', 'Add', 'Add a local repository', on_add)
         self._pull = self._button('pull', 'Pull',
@@ -40,14 +37,12 @@ class Toolbar(Gtk.Toolbar):
         self._push = self._button('push', 'Push',
                                   'Push to remote (Alt+Page Up)', on_push)
 
-        # Expanding, invisible separator pushes About to the right edge.
         spacer = Gtk.SeparatorToolItem()
         spacer.set_draw(False)
         spacer.set_expand(True)
         self.insert(spacer, -1)
         self._about = self._button('about', 'About', 'About VisualGit', on_about)
 
-        # Re-tint when the theme (and thus the foreground colour) changes.
         self.connect('style-updated', lambda *_: self._recolor_icons())
         self._recolor_icons()
 

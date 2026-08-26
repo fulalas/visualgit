@@ -1,4 +1,3 @@
-"""Middle panel: unified diff viewer with syntax coloring."""
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, Pango
@@ -28,9 +27,8 @@ class DiffPanel(Panel):
         self.buffer.set_text('')
 
     def set_diff(self, text):
-        # No-op when unchanged: a status-identical refresh would otherwise clear
-        # and rebuild the buffer, flashing the panel for no visible reason. Cheap
-        # char-count guard first, so an actual change skips the full buffer copy.
+        # No-op when unchanged: rebuilding the buffer on every refresh flashes
+        # the panel. The char count is checked first to keep this cheap.
         if self.buffer.get_char_count() == len(text):
             start, end = self.buffer.get_bounds()
             if self.buffer.get_text(start, end, True) == text:

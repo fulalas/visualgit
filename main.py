@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-"""VisualGit - a simple git GUI client."""
 import os
 import sys
 

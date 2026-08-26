@@ -1,4 +1,3 @@
-"""Non-modal, temporary message shown as a popover at the bottom of the window."""
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib

@@ -1,9 +1,3 @@
-"""Bottom-left panel: local and remote branches, grouped by remote.
-
-Local non-current and remote branches offer 'Checkout' and 'Merge from'
-via context menu; double-click also checks out. The 'Local Branches' row
-offers 'Create branch...'.
-"""
 import gi
 gi.require_version('Gtk', '3.0')
 from gi.repository import Gtk, GLib, Gdk
@@ -11,14 +5,10 @@ from gi.repository import Gtk, GLib, Gdk
 from vgit.ui.panel import Panel, popup_menu, row_at_event
 
 COL_MARKUP, COL_NAME, COL_KIND, COL_CURRENT = range(4)
-# kind: 'local-header' (Local Branches row), 'header' (remote group row),
-# 'local', 'remote'
 
 
 class BranchesPanel(Panel):
     def __init__(self, on_merge_from, on_checkout, on_delete, on_create):
-        """on_checkout(name, kind) and on_delete(name, kind) with kind
-        'local' or 'remote'."""
         super().__init__('Branches')
         self.on_merge_from = on_merge_from
         self.on_checkout = on_checkout
@@ -37,12 +27,11 @@ class BranchesPanel(Panel):
         self.scrolled.add(self.view)
 
     def set_branches(self, names, current, remote_names=(), ahead=None):
-        """`ahead` maps a local branch name to its count of unpushed commits."""
         ahead = ahead or {}
         self.store.clear()
         shown = list(names)
         if current and current not in shown:
-            shown.insert(0, current)  # detached HEAD / unborn branch
+            shown.insert(0, current)
 
         local_parent = self.store.append(None, [
             '<b>Local Branches (%d)</b>' % len(shown), '', 'local-header',
@@ -53,7 +42,6 @@ class BranchesPanel(Panel):
             markup = '<b>▸ %s</b>' % escaped if is_current else escaped
             count = ahead.get(name, 0)
             if count:
-                # Commits committed locally but not yet pushed to the upstream.
                 markup += (' <span size="small" foreground="#ff9800">(%d)</span>'
                            % count)
             self.store.append(local_parent, [markup, name, 'local', is_current])
@@ -86,8 +74,6 @@ class BranchesPanel(Panel):
             self.on_checkout(name, kind)
 
     def _on_key_press(self, view, event):
-        # Delete key mirrors the context-menu 'Delete' action; ignored on
-        # header rows and the current branch, which have no delete.
         if event.keyval != Gdk.KEY_Delete:
             return False
         model, itr = view.get_selection().get_selected()

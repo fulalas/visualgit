@@ -1,5 +1,3 @@
-"""Persisted application state: repository list, per-repository credentials,
-and UI state (selected repo, drafts, window geometry, splitter positions)."""
 import base64
 import hashlib
 import hmac
@@ -54,7 +52,6 @@ class Config:
         return True
 
     def set_repo_path(self, path, new_path):
-        """Point an existing entry at another folder (e.g. after moving it)."""
         repo = self.get_repo(path)
         if repo is None or self.get_repo(new_path):
             return False
@@ -77,8 +74,6 @@ class Config:
         repo = self.get_repo(path) or {}
         return repo.get('username', ''), self._decrypt(repo.get('password', ''))
 
-    # ------------------------------------------------------------- UI state
-
     def get_state(self, key, default=None):
         return self.data['state'].get(key, default)
 
@@ -87,12 +82,8 @@ class Config:
         if save:
             self.save()
 
-    # ------------------------------------------------- password obfuscation
-    # Keystream cipher (HMAC-SHA256 counter mode) with a random per-value
-    # nonce and a machine-local key file. This keeps passwords unreadable in
-    # config.json itself; it is not protection against an attacker who can
-    # read this user's home directory (the key lives there too).
-
+    # Passwords are only obfuscated, not protected: the key file sits next to
+    # config.json in the user's home.
     def _load_key(self):
         if self._key is None:
             if not os.path.isfile(KEY_FILE):

@@ -1,5 +1,5 @@
-"""Main window: layout, global shortcuts, and all action wiring."""
 import os
+import shutil
 import subprocess
 import threading
 
@@ -44,18 +44,18 @@ class MainWindow(Gtk.ApplicationWindow):
         try:
             Gtk.Window.set_default_icon_from_file(dialogs.LOGO_PATH)
         except GLib.Error:
-            pass  # bundled logo unreadable — fall back to the WM default icon
+            pass
         self.config = Config()
         self.git = None
         self._drafts = dict(self.config.get_state('drafts', {}))
         self._last_status = None
-        self._last_rev = None  # (HEAD hash, branch) — detects external commits
+        self._last_rev = None
         self._poll_busy = False
         self._remote_busy = False
-        self._resync_pending = False  # a change arrived while busy; re-sync after
-        self._watcher = None       # FolderWatcher for the current repo
+        self._resync_pending = False
+        self._watcher = None
         self._fallback_poll_id = None
-        self._commit_windows = []  # open non-modal per-commit diff windows
+        self._commit_windows = []
         self._load_css()
         self._build_ui()
         self._restore_window_state()
@@ -63,7 +63,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.connect('delete-event', self._on_close)
         self.show_all()
         self.files_panel.view.grab_focus()
-        # Make sure a working git is available before any repo query runs.
         self._ensure_git()
         items = self._reload_repo_list()
         if items:
@@ -73,8 +72,6 @@ class MainWindow(Gtk.ApplicationWindow):
             self.repos_panel.select(saved)
 
     def _ensure_git(self):
-        """Make sure a runnable git binary is configured. If none is found,
-        ask the user for the folder containing git, validating on OK."""
         saved = self.config.get_state('git_binary')
         if saved:
             gitcmd.set_git_binary(saved)
@@ -82,13 +79,13 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         while True:
             folder = dialogs.choose_git_folder(self)
-            if folder is None:  # cancelled
+            if folder is None:
                 self.toast.show_message(
                     'Git was not found — git operations are unavailable. '
                     'Restart to set its location.')
                 return
             candidate = os.path.join(folder, 'git')
-            if gitcmd.git_binary_works(candidate):  # only checked on OK
+            if gitcmd.git_binary_works(candidate):
                 gitcmd.set_git_binary(candidate)
                 self.config.set_state('git_binary', candidate)
                 self.toast.show_message('Using git at %s.' % candidate)
@@ -97,8 +94,6 @@ class MainWindow(Gtk.ApplicationWindow):
                 self, 'Git not found here',
                 'No working "git" program in:\n%s\n\n'
                 'Choose the folder that contains the git executable.' % folder)
-
-    # ----------------------------------------------------------- UI setup
 
     def _load_css(self):
         provider = Gtk.CssProvider()
@@ -120,8 +115,8 @@ class MainWindow(Gtk.ApplicationWindow):
         root.pack_start(overlay, True, True, 0)
         self.toast = Toast()
         overlay.add_overlay(self.toast)
-        # The toast is purely informational: let all input pass through it,
-        # otherwise it blocks clicks on the UI underneath while shown.
+        # Without pass-through the toast blocks clicks on the UI underneath
+        # while it is shown.
         overlay.set_overlay_pass_through(self.toast, True)
 
         self.repos_panel = ReposPanel(on_selected=self._on_repo_selected,
@@ -178,8 +173,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self._paned_defaults = {'left': 560, 'top': 850, 'center_bottom': 380,
                                 'right': 300, 'main': 280}
 
-    # ------------------------------------------------------ persisted state
-
     def _restore_window_state(self):
         geometry = self.config.get_state('window', {})
         self.set_default_size(geometry.get('width', 1500),
@@ -225,8 +218,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.config.set_state('drafts', self._drafts)
         return False
 
-    # ------------------------------------------------------ global shortcuts
-
     def _on_key_press(self, _widget, event):
         ctrl = event.state & Gdk.ModifierType.CONTROL_MASK
         alt = event.state & Gdk.ModifierType.MOD1_MASK
@@ -244,8 +235,6 @@ class MainWindow(Gtk.ApplicationWindow):
             return True
         return False
 
-    # ------------------------------------------------------------- helpers
-
     def _require_repo(self):
         if self.git is None:
             self.toast.show_message('No repository selected.')
@@ -253,14 +242,12 @@ class MainWindow(Gtk.ApplicationWindow):
         return True
 
     def _remote_in_progress(self):
-        """Guard for actions that must not run during an async pull/push."""
         if self._remote_busy:
             self.toast.show_message('A remote operation is in progress — please wait.')
             return True
         return False
 
     def _run_async(self, work, on_done):
-        """Run `work()` in a thread; call on_done(result, error) on the UI loop."""
         self._remote_busy = True
         self.toolbar.set_remote_ops_sensitive(False)
 
@@ -268,7 +255,7 @@ class MainWindow(Gtk.ApplicationWindow):
             result, error = None, None
             try:
                 result = work()
-            except Exception as exc:  # surfaced as a toast
+            except Exception as exc:
                 error = exc
             GLib.idle_add(finish, result, error)
 
@@ -276,7 +263,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self._remote_busy = False
             self.toolbar.set_remote_ops_sensitive(True)
             on_done(result, error)
-            if self._resync_pending:  # disk changed during the remote op
+            if self._resync_pending:
                 self._resync_pending = False
                 self._sync_from_disk()
             return False
@@ -291,9 +278,7 @@ class MainWindow(Gtk.ApplicationWindow):
         self.files_panel.set_files(entries)
 
     def _watch_repo(self, path):
-        """(Re)start filesystem monitoring for the given repo. Falls back to a
-        slow timer only if the tree is too large to watch entirely (decided
-        after the watcher's background scan, via on_ready)."""
+        # A tree too large to watch entirely falls back to a slow timer.
         self._stop_watching()
 
         def on_ready(overflowed):
@@ -318,22 +303,17 @@ class MainWindow(Gtk.ApplicationWindow):
         return True
 
     def _mark_refreshed(self):
-        """Tell the watcher the index we just left on disk is our own doing, so
-        the resulting stat-cache rewrite event isn't mistaken for an external
-        change. Call after any refresh that ran `git status`."""
+        # Must be called after any refresh that ran `git status`, so the index
+        # rewrite it causes is not taken for an external change.
         if self._watcher is not None:
             self._watcher.note_refreshed()
 
     def _sync_from_disk(self):
-        """Reconcile the views with what's on disk: the file list with
-        working-tree edits, and the journal/branches with commits made outside
-        the app (commit, amend, checkout, merge, pull, reset). Runs the git
-        queries off the UI thread; applies results on the UI loop."""
         if self.git is None:
             return
         if self._poll_busy or self._remote_busy:
-            # A sync or remote op is in flight; remember to reconcile again once
-            # it finishes, so a change that lands mid-flight is never missed.
+            # Reconcile again once the in-flight op finishes, so a change
+            # landing mid-flight is never missed.
             self._resync_pending = True
             return
         self._poll_busy = True
@@ -353,15 +333,11 @@ class MainWindow(Gtk.ApplicationWindow):
             if data is None or git is not self.git:
                 return False
             if data['rev'] != self._last_rev:
-                # HEAD or branch moved externally — refresh everything (this
-                # also updates the file list and sets _last_rev).
                 self._last_rev = data['rev']
                 self.refresh_repo_views()
             else:
-                # HEAD held still. Re-apply the file list only when the status
-                # label set actually changed, but always re-fetch the selected
-                # file's diff: a content-only edit leaves `git status`
-                # byte-identical yet still changes the diff we're showing.
+                # The diff is always re-fetched: a content-only edit leaves
+                # `git status` byte-identical yet still changes the diff.
                 if data['status'] != self._last_status:
                     self._apply_status(data['status'])
                 self._refresh_diff()
@@ -373,11 +349,9 @@ class MainWindow(Gtk.ApplicationWindow):
 
         threading.Thread(target=work, daemon=True).start()
 
-    # ------------------------------------------------------------- refresh
-
     def _reload_repo_list(self):
-        """Show the repo list immediately; resolve each repo's branch in a
-        background thread (git per repo would block startup on slow disks)."""
+        # The branches are resolved in a background thread: one git call per
+        # repo would block startup on slow disks.
         paths = [repo['path'] for repo in self.config.repos()]
         items = [{'path': path, 'name': os.path.basename(path), 'branch': '…'}
                  for path in paths]
@@ -398,7 +372,6 @@ class MainWindow(Gtk.ApplicationWindow):
         return items
 
     def refresh_repo_views(self):
-        """Gather repo state in a background thread, apply it on the UI loop."""
         if self.git is None:
             return
         git = self.git
@@ -418,7 +391,7 @@ class MainWindow(Gtk.ApplicationWindow):
             GLib.idle_add(apply_data, data, error)
 
         def apply_data(data, error):
-            if git is not self.git:  # repo switched while gathering
+            if git is not self.git:
                 return False
             if error:
                 self.toast.show_message(str(error))
@@ -427,8 +400,6 @@ class MainWindow(Gtk.ApplicationWindow):
                                              data['remotes'], data['ahead'])
             self._apply_status(data['status'])
             self.journal_panel.set_commits(data['log'], data['head'])
-            # Show the diff of whatever the file list kept selected (after a
-            # commit that is the row which replaced the committed file).
             self._refresh_diff()
             self.repos_panel.update_branch(git.path, os.path.basename(git.path),
                                            data['current'])
@@ -444,14 +415,12 @@ class MainWindow(Gtk.ApplicationWindow):
                        cred_provider=lambda p=path: self.config.credentials(p))
         self.repos_panel.set_active(path)
         self.commit_panel.set_message(self._drafts.get(path, ''))
-        self.files_panel.clear_selection()  # rows belong to the old repo
+        self.files_panel.clear_selection()
         self._last_rev = None
         self.refresh_repo_views()
         self._watch_repo(path)
         self.config.set_state('selected_repo', path, save=False)
         self.config.set_state('drafts', self._drafts)
-
-    # ------------------------------------------------------------- toolbar
 
     def show_about(self):
         dialogs.about_dialog(self, __version__)
@@ -470,7 +439,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.repos_panel.select(path)
 
     def edit_repository_path(self, path):
-        """Point a registered repo at another folder (e.g. after moving it)."""
         new_path = dialogs.input_dialog(
             self, dialogs.repo_title(os.path.basename(path), 'Path'),
             'Local path:',
@@ -523,9 +491,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self._reload_repo_list()
 
     def _prompt_remote(self, path, note=None):
-        """Ask for and save a repo's remote URL (pre-filled when one exists).
-        Returns True if a usable remote is configured afterwards. An empty
-        URL submitted over an existing remote offers to remove it."""
         git = self.git if self.git and self.git.path == path else Git(path)
         name = git.effective_remote()
         try:
@@ -537,9 +502,9 @@ class MainWindow(Gtk.ApplicationWindow):
             'Server URL:', text=current,
             note=note or 'The repository URL, saved as remote "%s" and used '
                          'for pushing and pulling.' % name)
-        if url is None:  # cancelled
+        if url is None:
             return False
-        if not url:  # OK with an empty field
+        if not url:
             if current and dialogs.confirm_dialog(
                     self, 'Remove remote?',
                     'Remove remote "%s" (%s)?' % (name, current)):
@@ -560,16 +525,13 @@ class MainWindow(Gtk.ApplicationWindow):
         return True
 
     def set_remote(self, path):
-        """Set/change a repo's remote URL from the context menu."""
         self._prompt_remote(path)
 
     def _credentials_set(self):
-        """True if a username and password are both stored for the repo."""
         username, password = self.config.credentials(self.git.path)
         return bool(username and password)
 
     def _remote_preflight(self, verb):
-        """Common checks before pull/push. Returns True to proceed."""
         if not self._require_repo() or self._remote_in_progress():
             return False
         if not Git.is_repo(self.git.path):
@@ -581,8 +543,8 @@ class MainWindow(Gtk.ApplicationWindow):
                 note='%s needs a remote, but none is configured. Enter the '
                      'repository URL; it will be saved as "origin".' % verb):
             return False
-        # Credentials are only meaningful for HTTP(S) remotes — SSH and
-        # local-path remotes must not be blocked by the credentials modal.
+        # SSH and local-path remotes must not be blocked by the credentials
+        # modal, which only covers HTTP(S).
         if (self.git.remote_needs_password() and not self._credentials_set()
                 and not self.set_credentials(
                     self.git.path,
@@ -614,8 +576,6 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.refresh_repo_views()
         return done
 
-    # ------------------------------------------------------------- commit
-
     @staticmethod
     def _is_identity_error(exc):
         text = str(exc).lower()
@@ -624,7 +584,6 @@ class MainWindow(Gtk.ApplicationWindow):
                 or 'empty ident' in text)
 
     def do_commit(self, ask_identity=True):
-        """Commit the staged changes. Returns True on success."""
         if not self._require_repo() or self._remote_in_progress():
             return False
         message = self.commit_panel.get_message().strip()
@@ -656,8 +615,6 @@ class MainWindow(Gtk.ApplicationWindow):
         return True
 
     def push_staged(self):
-        """Alt+PageUp: commit staged changes first (if any), then push. With
-        nothing staged, push the already-committed but unpushed commits."""
         if not self._require_repo() or self._remote_in_progress():
             return
         try:
@@ -666,16 +623,11 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message(str(exc))
             return
         if staged:
-            # There is staged work — commit it before pushing (needs a message).
             if not self.do_commit():
                 return
         self.push()
 
-    # ------------------------------------------------------- files & diff
-
     def _refresh_diff(self):
-        """Show the diff of the file last added to the selection, no matter how
-        many files are selected."""
         if self.git is None:
             return
         entry = self.files_panel.focus_entry()
@@ -701,7 +653,7 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         path = self._abs_path(entry)
         if not os.path.exists(path):
-            # Deleted files, and files a past commit touched, have no working
+            # A deleted file, or one only a past commit touched, has no working
             # tree copy — xdg-open would fail silently.
             self.toast.show_message(
                 '%s is not in the working tree.' % entry['path'])
@@ -712,7 +664,6 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message('Could not open file: %s' % exc)
 
     def _reveal_file(self, entry):
-        """entry is None when revealing the repository folder itself."""
         if not self._require_repo():
             return
         if entry is None:
@@ -723,7 +674,6 @@ class MainWindow(Gtk.ApplicationWindow):
             return
         path = self._abs_path(entry)
         try:
-            # Ask the file manager to show the file selected in its folder.
             bus = Gio.bus_get_sync(Gio.BusType.SESSION, None)
             uri = GLib.filename_to_uri(path, None)
             bus.call_sync('org.freedesktop.FileManager1',
@@ -754,23 +704,29 @@ class MainWindow(Gtk.ApplicationWindow):
         self._refresh_files_keep_diff()
 
     def _confirm_files(self, title, one, many, entries):
-        """Yes/No confirmation for a file action. `one` is a format string
-        taking the single path; `many` takes the file count."""
         text = one % entries[0]['path'] if len(entries) == 1 else many % len(entries)
         return dialogs.confirm_dialog(self, title, text)
 
     def _delete_files(self, entries):
         if not self._require_repo() or self._remote_in_progress():
             return
+        one = ('"%s" and everything inside it will be permanently deleted '
+               'from disk.' if entries[0]['path'].endswith('/')
+               else '"%s" will be permanently deleted from disk.')
         if not self._confirm_files(
-                'Delete?',
-                '"%s" will be permanently deleted from disk.',
+                'Delete?', one,
                 '%d files will be permanently deleted from disk.', entries):
             return
         errors = 0
         for entry in entries:
+            path = self._abs_path(entry)
             try:
-                os.remove(self._abs_path(entry))
+                # An untracked nested repository is listed as a folder entry,
+                # and os.remove cannot delete a folder.
+                if os.path.isdir(path) and not os.path.islink(path):
+                    shutil.rmtree(path)
+                else:
+                    os.remove(path)
             except OSError:
                 errors += 1
         if errors:
@@ -794,8 +750,7 @@ class MainWindow(Gtk.ApplicationWindow):
                 self.git.rm_cached(entry['path'])
         except GitError as exc:
             self.toast.show_message('Stop tracking failed: %s' % exc)
-            # Some files may have been untracked before the failure — reflect
-            # whatever actually changed rather than leaving stale rows.
+            # Some files may have been untracked before the failure.
             self._refresh_files_keep_diff()
             return
         if len(entries) == 1:
@@ -852,8 +807,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self._refresh_diff()
         self._mark_refreshed()
 
-    # ------------------------------------------------------------ branches
-
     def checkout_branch(self, name, kind):
         if not self._require_repo() or self._remote_in_progress():
             return
@@ -896,8 +849,8 @@ class MainWindow(Gtk.ApplicationWindow):
         if not dialogs.confirm_dialog(self, 'Delete?', text):
             return
         if kind == 'remote':
-            # Deleting on the remote is a network op — run it off the UI thread
-            # like pull/push, so a slow/unreachable remote can't freeze the app.
+            # A network op: run it off the UI thread like pull/push, so a
+            # slow or unreachable remote cannot freeze the app.
             if not self._remote_preflight('Delete'):
                 return
             self.toast.show_message("Deleting '%s'…" % name)
@@ -924,8 +877,6 @@ class MainWindow(Gtk.ApplicationWindow):
         self.toast.show_message("Merged '%s' into %s." %
                                 (branch, self.git.current_branch()))
         self.refresh_repo_views()
-
-    # ------------------------------------------------------------- journal
 
     def copy_hash(self, commit):
         clipboard = Gtk.Clipboard.get(Gdk.SELECTION_CLIPBOARD)
@@ -988,10 +939,7 @@ class MainWindow(Gtk.ApplicationWindow):
             self.toast.show_message('Commit updated.')
         self.refresh_repo_views()
 
-    # -------------------------------------------------------- credentials
-
     def set_identity(self, path, note=None):
-        """Show the identity modal for a repo. Returns True if saved."""
         git = self.git if self.git and self.git.path == path else Git(path)
         try:
             name, email = git.identity()
@@ -1013,7 +961,6 @@ class MainWindow(Gtk.ApplicationWindow):
         return True
 
     def set_credentials(self, path, note=None):
-        """Show the credentials modal for a repo. Returns True if saved."""
         username, old_password = self.config.credentials(path)
         result = dialogs.credentials_dialog(self, os.path.basename(path), username,
                                             has_password=bool(old_password),

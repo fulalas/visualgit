@@ -1,4 +1,3 @@
-"""Top-center panel: working tree / index status table (multi-select)."""
 from collections import Counter
 
 import gi
@@ -15,10 +14,6 @@ from vgit.ui.panel import (Panel, popup_menu, row_at_event, add_filler_column,
 class FilesPanel(Panel):
     def __init__(self, on_files_selected, on_stage, on_unstage, on_open, on_reveal,
                  on_discard, on_delete, on_untrack, on_ignore):
-        """on_open receives one entry; on_reveal receives one entry, or None to
-        reveal the repository folder; on_files_selected / on_stage / on_unstage /
-        on_discard / on_delete / on_untrack / on_ignore receive a list of
-        entries."""
         super().__init__('Files')
         self.on_files_selected = on_files_selected
         self.on_stage = on_stage
@@ -30,16 +25,14 @@ class FilesPanel(Panel):
         self.on_untrack = on_untrack
         self.on_ignore = on_ignore
         self._rebuilding = False
-        self._selected_keys = []  # row keys selected at the last change
-        self._focus = None        # row key the diff follows (last one selected)
+        self._selected_keys = []
+        self._focus = None
 
         self.store = Gtk.ListStore(str, str, str, str, str, bool, bool, bool, str)
         self.view = Gtk.TreeView(model=self.store)
         self.view.get_selection().set_mode(Gtk.SelectionMode.MULTIPLE)
         self._columns = {}
 
-        # Name column: a fixed-width icon cell + the name cell, so names line
-        # up regardless of the state glyph's natural width.
         name_col = make_name_column(COL_ICON, COL_NAME)
         name_col.set_sort_column_id(COL_NAME)
         name_col.set_sizing(Gtk.TreeViewColumnSizing.FIXED)
@@ -59,8 +52,6 @@ class FilesPanel(Panel):
             column.set_fixed_width(width)
             self.view.append_column(column)
             self._columns[key] = column
-        # Trailing filler absorbs leftover width and gives the last real column
-        # a resize grip (GTK won't draw one on the final column).
         add_filler_column(self.view, expand=True)
         self.view.get_selection().connect('changed', self._on_selection_changed)
         self.view.connect('row-activated', self._on_row_activated)
@@ -78,20 +69,16 @@ class FilesPanel(Panel):
                 column.set_fixed_width(widths[key])
 
     def clear_selection(self):
-        """Drop the selection without loading a diff. Used when switching repos,
-        where keeping the old repo's rows selected makes no sense."""
         self._rebuilding = True
         self.view.get_selection().unselect_all()
         self._update_focus()
         self._rebuilding = False
 
     def set_files(self, entries):
-        """Bring the list up to date by touching only what changed: a staged
-        file just gets a new icon and state text. Emptying and refilling the
-        store would make the whole list blink and reset the scroll position.
-        _rebuilding stays set throughout, so the selection changes GTK makes
-        while rows come and go don't each load a diff — callers refresh the
-        diff once the list is settled."""
+        # Only what changed is touched: emptying and refilling the store would
+        # make the whole list blink and reset the scroll position. _rebuilding
+        # stays set throughout, so the selection changes GTK makes while rows
+        # come and go don't each load a diff.
         self._rebuilding = True
         selection = self.view.get_selection()
         _model, selected = selection.get_selected_rows()
@@ -102,7 +89,7 @@ class FilesPanel(Panel):
         # count, otherwise the second entry would overwrite the first one's row
         # and one of the two would never be listed.
         wanted = Counter(e['path'] for e in entries)
-        kept_above = 0  # surviving rows above the selection: its new position
+        kept_above = 0
         position = 0
         row_iter = self.store.get_iter_first()
         while row_iter is not None:
@@ -111,14 +98,13 @@ class FilesPanel(Panel):
                 wanted[path] -= 1
                 kept_above += position < first_row
                 row_iter = self.store.iter_next(row_iter)
-            elif not self.store.remove(row_iter):  # removed the last row
+            elif not self.store.remove(row_iter):
                 row_iter = None
             position += 1
 
         # With a sort column active the store decides where a row goes, so new
-        # ones are simply appended; unsorted, they take their `git status` spot
-        # (the rows that survived are still in that order).
-        sort_column = self.store.get_sort_column_id()[0]  # None while unsorted
+        # ones are simply appended; unsorted, they take their `git status` spot.
+        sort_column = self.store.get_sort_column_id()[0]
         by_column = sort_column is not None and sort_column >= 0
         rows = {}
         for row in self.store:
@@ -142,8 +128,8 @@ class FilesPanel(Panel):
                     row[col] = value
 
         if selected and not selection.count_selected_rows() and len(self.store):
-            # Every selected file left the list (staged, committed, discarded):
-            # select whatever took its place instead of losing the position.
+            # Every selected file left the list: select whatever took its
+            # place instead of losing the position.
             index = min(kept_above, len(self.store) - 1)
             selection.select_path(Gtk.TreePath.new_from_indices([index]))
         self._update_focus()
@@ -155,9 +141,8 @@ class FilesPanel(Panel):
                 'unstaged': row[COL_UNSTAGED], 'untracked': row[COL_UNTRACKED]}
 
     def _row_keys(self):
-        """One key per row, in list order: (path, how many rows with that path
-        come before it). Identifies a row even when two rows share a path
-        (`git rm --cached`), and survives a refresh that moves rows around."""
+        # (path, how many rows with that path come before it) — identifies a
+        # row even when two rows share a path, across a refresh.
         seen = Counter()
         keys = []
         for row in self.store:
@@ -171,10 +156,9 @@ class FilesPanel(Panel):
         return [p.get_indices()[0] for p in paths]
 
     def _update_focus(self):
-        """Remember which row the diff should follow: the one last added to the
-        selection. Rows leaving the selection don't move the focus unless the
-        focused row itself is gone, so Ctrl+clicking a row off leaves the diff
-        where it was."""
+        # The diff follows the row last added to the selection. A row leaving
+        # the selection must not move the focus unless it was the focused one,
+        # so Ctrl+clicking a row off leaves the diff where it was.
         keys = self._row_keys()
         selected = [keys[i] for i in self._selected_indices() if i < len(keys)]
         added = [key for key in selected if key not in self._selected_keys]
@@ -195,14 +179,13 @@ class FilesPanel(Panel):
         return keys[index] if index < len(keys) else None
 
     def focus_entry(self):
-        """Entry of the row the diff follows, or None when nothing is selected."""
         keys = self._row_keys()
         selected = [i for i in self._selected_indices() if i < len(keys)]
         if not selected:
             return None
         index = keys.index(self._focus) if self._focus in keys else -1
         if index not in selected:
-            index = selected[-1]  # focus row gone: fall back to the bottom one
+            index = selected[-1]
         return self._entry(self.store[index])
 
     def selected_entries(self):
@@ -219,7 +202,6 @@ class FilesPanel(Panel):
         self.on_open(self._entry(self.store[path]))
 
     def _on_key_press(self, _view, event):
-        # Delete key mirrors the context-menu 'Delete' action.
         if event.keyval != Gdk.KEY_Delete:
             return False
         entries = self.selected_entries()
@@ -232,14 +214,12 @@ class FilesPanel(Panel):
         if event.type != Gdk.EventType.BUTTON_PRESS:
             return False
         if event.button == 1:
-            # Left click on empty space clears the selection.
             if view.get_path_at_pos(int(event.x), int(event.y)) is None:
                 view.get_selection().unselect_all()
             return False
         if event.button != 3:
             return False
         if row_at_event(view, event) is None:
-            # Empty space: only the repository folder can be acted on.
             view.get_selection().unselect_all()
             popup_menu(view, event,
                        [('Reveal in file manager', lambda: self.on_reveal(None))])
