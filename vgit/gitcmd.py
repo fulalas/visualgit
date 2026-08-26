@@ -226,11 +226,16 @@ class Git:
             x, y, path = token[0], token[1], token[3:]
             if x in 'RC' or y in 'RC':
                 index += 1  # the following token is the rename origin path
+            # An untracked nested repository is reported as 'dir/'; the trailing
+            # slash makes basename() empty, so the Name column would be blank.
+            # The name keeps a slash to mark the entry as a folder.
+            named = path.rstrip('/')
+            is_dir = named != path
             entries.append({
                 'path': path,
-                'name': os.path.basename(path),
-                'type': _file_type(path),
-                'dir': os.path.dirname(path),
+                'name': os.path.basename(named) + ('/' if is_dir else ''),
+                'type': '' if is_dir else _file_type(path),
+                'dir': os.path.dirname(named),
                 'state': self._state_label(x, y),
                 'untracked': x == '?',
                 'staged': x not in (' ', '?'),

@@ -700,6 +700,12 @@ class MainWindow(Gtk.ApplicationWindow):
         if not self._require_repo():
             return
         path = self._abs_path(entry)
+        if not os.path.exists(path):
+            # Deleted files, and files a past commit touched, have no working
+            # tree copy — xdg-open would fail silently.
+            self.toast.show_message(
+                '%s is not in the working tree.' % entry['path'])
+            return
         try:
             subprocess.Popen(['xdg-open', path])
         except OSError as exc:
@@ -930,7 +936,8 @@ class MainWindow(Gtk.ApplicationWindow):
     def show_commit_changes(self, commit, short):
         if not self._require_repo():
             return
-        window = CommitWindow(self, self.git, commit, short, self.config)
+        window = CommitWindow(self, self.git, commit, short, self.config,
+                              self._open_file)
         self._commit_windows.append(window)
         window.connect('destroy', self._on_commit_window_destroyed)
 

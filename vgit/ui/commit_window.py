@@ -13,13 +13,14 @@ COL_ICON, COL_NAME, COL_DIR, COL_PATH, COL_STATE = range(5)
 
 
 class CommitWindow(Gtk.Window):
-    def __init__(self, parent, git, commit, short, config):
+    def __init__(self, parent, git, commit, short, config, on_open):
         super().__init__(title='Commit %s' % short)
         self.set_transient_for(parent)
         self.set_destroy_with_parent(True)
         self.git = git
         self.commit = commit
         self.config = config
+        self.on_open = on_open
         state = dict(config.get_state('commit_window', {}))
         self.set_default_size(state.get('width', 1000), state.get('height', 640))
         self.connect('key-press-event', self._on_key_press)
@@ -60,6 +61,7 @@ class CommitWindow(Gtk.Window):
         self.view.append_column(self._state_col)
         add_filler_column(self.view, expand=True)
         self.view.get_selection().connect('changed', self._on_selection_changed)
+        self.view.connect('row-activated', self._on_row_activated)
         scrolled.add(self.view)
 
         self.diff_panel = DiffPanel()
@@ -138,6 +140,9 @@ class CommitWindow(Gtk.Window):
             self.view.get_selection().select_iter(first)
         else:
             self.diff_panel.set_diff('This commit changed no files.')
+
+    def _on_row_activated(self, _view, path, _column):
+        self.on_open({'path': self.store[path][COL_PATH]})
 
     def _on_selection_changed(self, selection):
         model, itr = selection.get_selected()
