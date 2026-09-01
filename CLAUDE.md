@@ -12,16 +12,6 @@ shell out to the system `git` CLI. Run with `python3 main.py`.
    `VisualGit - [version]` (read via `vgit.__version__` — no other place
    needs editing).
 
-## Structure
-
-- `main.py` — entry point
-- `vgit/gitcmd.py` — ALL git subprocess logic lives here, nowhere else
-- `vgit/config.py` — persisted repos, credentials (encrypted), UI state
-  (`~/.config/visualgit/`)
-- `vgit/ui/window.py` — layout, global shortcuts, action wiring
-- `vgit/ui/*_panel.py` — one file per panel; `dialogs.py`, `toast.py`,
-  `toolbar.py`, `panel.py` (shared helpers)
-
 ## Conventions
 
 - Notifications are non-modal bottom popovers (`toast.show_message`),
