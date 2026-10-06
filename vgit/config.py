@@ -13,16 +13,8 @@ KEY_FILE = os.path.join(CONFIG_DIR, 'key')
 
 class Config:
     def __init__(self):
-        self.data = {'repos': []}
         os.makedirs(CONFIG_DIR, exist_ok=True)
-        if os.path.isfile(CONFIG_FILE):
-            try:
-                with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    self.data = loaded
-            except (OSError, ValueError):
-                pass
+        self.data = self._read_file() or {'repos': []}
         if not isinstance(self.data.get('repos'), list):
             self.data['repos'] = []
         if not isinstance(self.data.get('state'), dict):
@@ -34,6 +26,21 @@ class Config:
         with open(CONFIG_FILE, 'w', encoding='utf-8') as f:
             json.dump(self.data, f, indent=2)
         os.chmod(CONFIG_FILE, stat.S_IRUSR | stat.S_IWUSR)
+
+    @staticmethod
+    def _read_file():
+        try:
+            with open(CONFIG_FILE, 'r', encoding='utf-8') as f:
+                loaded = json.load(f)
+        except (OSError, ValueError):
+            return None
+        return loaded if isinstance(loaded, dict) else None
+
+    def reload_repos(self):
+        loaded = self._read_file()
+        if loaded and isinstance(loaded.get('repos'), list):
+            self.data['repos'] = loaded['repos']
+            self._migrate_plaintext_passwords()
 
     def repos(self):
         return list(self.data['repos'])

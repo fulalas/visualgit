@@ -54,9 +54,9 @@ class ReposPanel(Panel):
         for item in items:
             row = self.store.append(['', item['path'], item['name'], item['branch']])
             self._render_row(self.store[row])
-        self._rebuilding = False
         if selected:
             self.select(selected)
+        self._rebuilding = False
 
     def set_active(self, path):
         self._active = path

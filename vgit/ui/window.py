@@ -53,6 +53,8 @@ class MainWindow(Gtk.ApplicationWindow):
         self._poll_busy = False
         self._remote_busy = False
         self._resync_pending = False
+        self._refresh_pending = 0
+        self._refresh_failed = False
         self._watcher = None
         self._fallback_poll_id = None
         self._commit_windows = []
@@ -108,6 +110,7 @@ class MainWindow(Gtk.ApplicationWindow):
 
         self.toolbar = Toolbar(on_add=self.add_repository,
                                on_pull=self.pull, on_push=self.push,
+                               on_refresh=self.refresh_all,
                                on_about=self.show_about)
         root.pack_start(self.toolbar, False, False, 0)
 
@@ -233,6 +236,9 @@ class MainWindow(Gtk.ApplicationWindow):
         if alt and event.keyval in (Gdk.KEY_Page_Down, Gdk.KEY_KP_Page_Down):
             self.pull()
             return True
+        if event.keyval == Gdk.KEY_F5:
+            self.refresh_all()
+            return True
         return False
 
     def _require_repo(self):
@@ -349,29 +355,36 @@ class MainWindow(Gtk.ApplicationWindow):
 
         threading.Thread(target=work, daemon=True).start()
 
-    def _reload_repo_list(self):
+    def _reload_repo_list(self, on_done=None):
         # The branches are resolved in a background thread: one git call per
         # repo would block startup on slow disks.
         paths = [repo['path'] for repo in self.config.repos()]
+        if self.git is not None and self.git.path not in paths:
+            self._drafts.pop(self.git.path, None)
+            self._close_repo()
         items = [{'path': path, 'name': os.path.basename(path), 'branch': '…'}
                  for path in paths]
         items.sort(key=lambda item: item['name'].lower())
         self.repos_panel.set_repos(items)
 
         def work():
-            for path in paths:
-                try:
-                    branch = (Git(path).current_branch() if Git.is_repo(path)
-                              else 'missing')
-                except (GitError, OSError):
-                    branch = 'missing'
-                GLib.idle_add(self.repos_panel.update_branch, path,
-                              os.path.basename(path), branch)
+            try:
+                for path in paths:
+                    try:
+                        branch = (Git(path).current_branch()
+                                  if Git.is_repo(path) else 'missing')
+                    except (GitError, OSError):
+                        branch = 'missing'
+                    GLib.idle_add(self.repos_panel.update_branch, path,
+                                  os.path.basename(path), branch)
+            finally:
+                if on_done is not None:
+                    GLib.idle_add(on_done)
 
         threading.Thread(target=work, daemon=True).start()
         return items
 
-    def refresh_repo_views(self):
+    def refresh_repo_views(self, on_done=None):
         if self.git is None:
             return
         git = self.git
@@ -386,25 +399,28 @@ class MainWindow(Gtk.ApplicationWindow):
                 data['log'] = git.log()
                 data['head'] = git.head_hash()
                 data['ahead'] = git.ahead_counts()
-            except (GitError, OSError) as exc:
+            except Exception as exc:
                 error = exc
             GLib.idle_add(apply_data, data, error)
 
         def apply_data(data, error):
             if git is not self.git:
-                return False
-            if error:
+                pass
+            elif error:
                 self.toast.show_message(str(error))
-                return False
-            self.branches_panel.set_branches(data['branches'], data['current'],
-                                             data['remotes'], data['ahead'])
-            self._apply_status(data['status'])
-            self.journal_panel.set_commits(data['log'], data['head'])
-            self._refresh_diff()
-            self.repos_panel.update_branch(git.path, os.path.basename(git.path),
-                                           data['current'])
-            self._last_rev = (data['head'], data['current'])
-            self._mark_refreshed()
+            else:
+                self.branches_panel.set_branches(
+                    data['branches'], data['current'], data['remotes'],
+                    data['ahead'])
+                self._apply_status(data['status'])
+                self.journal_panel.set_commits(data['log'], data['head'])
+                self._refresh_diff()
+                self.repos_panel.update_branch(
+                    git.path, os.path.basename(git.path), data['current'])
+                self._last_rev = (data['head'], data['current'])
+                self._mark_refreshed()
+            if on_done is not None:
+                on_done(error is None)
             return False
 
         threading.Thread(target=work, daemon=True).start()
@@ -459,8 +475,6 @@ class MainWindow(Gtk.ApplicationWindow):
         was_selected = self.git is not None and self.git.path == path
         if was_selected:
             self._save_current_draft()
-            self._stop_watching()
-            self.git = None
         self.config.set_repo_path(path, new_path)
         if path in self._drafts:
             self._drafts[new_path] = self._drafts.pop(path)
@@ -480,15 +494,35 @@ class MainWindow(Gtk.ApplicationWindow):
         self.config.remove_repo(path)
         self._drafts.pop(path, None)
         self.config.set_state('drafts', self._drafts, save=False)
-        if self.git and self.git.path == path:
-            self._stop_watching()
-            self.git = None
-            self.repos_panel.set_active(None)
-            self.branches_panel.set_branches([], None)
-            self._apply_status([])
-            self.journal_panel.set_commits([])
-            self.diff_panel.clear()
         self._reload_repo_list()
+
+    def _close_repo(self):
+        self._stop_watching()
+        self.git = None
+        self.repos_panel.set_active(None)
+        self.branches_panel.set_branches([], None)
+        self._apply_status([])
+        self.journal_panel.set_commits([])
+        self.diff_panel.clear()
+        self.commit_panel.clear()
+
+    def refresh_all(self):
+        if self._refresh_pending or self._remote_in_progress():
+            return
+        self.config.reload_repos()
+        self._refresh_failed = False
+        self._reload_repo_list(on_done=self._refresh_part_done)
+        parts = 1
+        if self.git is not None:
+            self.refresh_repo_views(on_done=self._refresh_part_done)
+            parts += 1
+        self._refresh_pending = parts
+
+    def _refresh_part_done(self, ok=True):
+        self._refresh_failed = self._refresh_failed or not ok
+        self._refresh_pending -= 1
+        if not self._refresh_pending and not self._refresh_failed:
+            self.toast.show_message('Refreshed.')
 
     def _prompt_remote(self, path, note=None):
         git = self.git if self.git and self.git.path == path else Git(path)

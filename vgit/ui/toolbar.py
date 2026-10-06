@@ -26,7 +26,7 @@ def _load_icon(name, fg_hex):
 
 
 class Toolbar(Gtk.Toolbar):
-    def __init__(self, on_add, on_pull, on_push, on_about):
+    def __init__(self, on_add, on_pull, on_push, on_refresh, on_about):
         super().__init__()
         self.set_style(Gtk.ToolbarStyle.BOTH)
         self._icons = []
@@ -36,6 +36,9 @@ class Toolbar(Gtk.Toolbar):
                                   'Pull from remote (Alt+Page Down)', on_pull)
         self._push = self._button('push', 'Push',
                                   'Push to remote (Alt+Page Up)', on_push)
+        self._refresh = self._button('refresh', 'Refresh',
+                                     'Reload everything from disk (F5)',
+                                     on_refresh)
 
         spacer = Gtk.SeparatorToolItem()
         spacer.set_draw(False)
