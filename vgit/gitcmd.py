@@ -366,8 +366,18 @@ class Git:
     def commit(self, message):
         self._run('commit', '-m', message)
 
+    def _pull_mode_args(self, branch):
+        keys = ['pull.rebase', 'pull.ff']
+        if branch:
+            keys.append('branch.%s.rebase' % branch)
+        for key in keys:
+            if self._run('config', '--get', key, check=False).returncode == 0:
+                return []
+        return ['--no-rebase']
+
     def pull(self):
         branch = self._branch_name()
+        mode = self._pull_mode_args(branch)
         upstream = ''
         if branch:
             upstream = self._run('config', 'branch.%s.remote' % branch,
@@ -377,11 +387,11 @@ class Git:
             # to merge. Pull the same-named branch from the effective remote,
             # then adopt it as upstream so the next pull is a plain one.
             remote = self._push_remote()
-            self._run('pull', '--no-edit', remote, branch, auth=True)
+            self._run('pull', '--no-edit', *mode, remote, branch, auth=True)
             self._run('branch', '--set-upstream-to=%s/%s' % (remote, branch),
                       check=False)
         else:
-            self._run('pull', '--no-edit', auth=True)
+            self._run('pull', '--no-edit', *mode, auth=True)
 
     def remotes(self):
         proc = self._run('remote', check=False)
